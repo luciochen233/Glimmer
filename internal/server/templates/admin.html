@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Admin — URL Shortener</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul>
+			<li><a href="/">Home</a></li>
+			<li>
+				<form method="post" action="/admin/logout" style="margin:0">
+					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+					<button type="submit" class="outline secondary btn-sm">Logout</button>
+				</form>
+			</li>
+		</ul>
+	</nav>
+	<div class="admin-tabs">
+		<a href="/admin" class="tab-link active">Links</a>
+		<a href="/admin/bin" class="tab-link">Pastes</a>
+	</div>
+	<main class="container" style="max-width:960px">
+
+		<div class="stats-bar">
+			<div class="stats-card">
+				<span class="stats-value">{{len .AdminLinks}}</span>
+				<span class="stats-label">My Links</span>
+			</div>
+			<div class="stats-card">
+				<span class="stats-value">{{len .AnonLinks}}</span>
+				<span class="stats-label">Anonymous</span>
+			</div>
+			<div class="stats-card">
+				<span class="stats-value">{{len .TopLinks}}</span>
+				<span class="stats-label">Quick Links</span>
+			</div>
+		</div>
+
+		{{if .TopLinks}}
+		<article>
+			<header>
+				<h3>Quick Links</h3>
+			</header>
+			<div class="tile-grid">
+				{{range .TopLinks}}
+				<a href="/{{.Slug}}" class="tile" target="_blank" title="{{.URL}}">
+					<img class="tile-favicon" src="https://www.google.com/s2/favicons?sz=32&domain_url={{.URL}}" loading="lazy" alt="" onerror="this.style.display='none'">
+					<span class="tile-slug">/{{.Slug}}</span>
+					<span class="tile-dest">{{.URL}}</span>
+					<span class="tile-clicks">{{.Clicks}} clicks</span>
+				</a>
+				{{end}}
+			</div>
+		</article>
+		{{end}}
+
+		{{if .Success}}
+		<article aria-label="success" class="alert-success">{{.Success}}</article>
+		{{end}}
+
+		<article class="card-table">
+			<div class="section-header">
+				<hgroup>
+					<h2>My Links</h2>
+					<p>{{len .AdminLinks}} links</p>
+				</hgroup>
+				<a href="/" role="button" class="outline btn-sm">+ New Link</a>
+			</div>
+			<figure>
+			<table role="grid">
+				<thead>
+					<tr>
+						<th>Slug</th>
+						<th>Destination</th>
+						<th>Clicks</th>
+						<th>Created</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .AdminLinks}}
+					<tr>
+						<td><a href="/{{.Slug}}" target="_blank">/{{.Slug}}</a></td>
+						<td title="{{.URL}}">{{.URL}}</td>
+						<td>{{.Clicks}}</td>
+						<td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+						<td>
+							<div role="group">
+								<a href="/admin/edit/{{.ID}}" role="button" class="outline">Edit</a>
+								<form method="post" action="/admin/delete/{{.ID}}" onsubmit="return confirm('Delete /{{.Slug}}?')">
+									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+									<button type="submit" class="outline secondary">Del</button>
+								</form>
+							</div>
+						</td>
+					</tr>
+					{{else}}
+					<tr>
+						<td colspan="5">
+							<div class="empty-state">
+								<span class="empty-icon">&#128279;</span>
+								<p>No links yet.</p>
+								<a href="/">Create your first link</a>
+							</div>
+						</td>
+					</tr>
+					{{end}}
+				</tbody>
+			</table>
+			</figure>
+		</article>
+
+		<article class="card-table">
+			<div class="section-header">
+				<hgroup>
+					<h2>Anonymous Links</h2>
+					<p>{{len .AnonLinks}} links</p>
+				</hgroup>
+			</div>
+			<figure>
+			<table role="grid">
+				<thead>
+					<tr>
+						<th>Slug</th>
+						<th>Destination</th>
+						<th>Clicks</th>
+						<th>Created</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .AnonLinks}}
+					<tr>
+						<td><a href="/{{.Slug}}" target="_blank">/{{.Slug}}</a></td>
+						<td title="{{.URL}}">{{.URL}}</td>
+						<td>{{.Clicks}}</td>
+						<td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+						<td>
+							<div role="group">
+								<a href="/admin/edit/{{.ID}}" role="button" class="outline">Edit</a>
+								<form method="post" action="/admin/delete/{{.ID}}" onsubmit="return confirm('Delete /{{.Slug}}?')">
+									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+									<button type="submit" class="outline secondary">Del</button>
+								</form>
+							</div>
+						</td>
+					</tr>
+					{{else}}
+					<tr>
+						<td colspan="5">
+							<div class="empty-state">
+								<span class="empty-icon">&#128101;</span>
+								<p>No anonymous links.</p>
+							</div>
+						</td>
+					</tr>
+					{{end}}
+				</tbody>
+			</table>
+			</figure>
+		</article>
+
+	</main>
+<script>
+	document.querySelectorAll('.tile-dest').forEach(el => {
+		try { el.textContent = new URL(el.textContent.trim()).hostname; } catch(e) {}
+	});
+</script>
+</body>
+</html>

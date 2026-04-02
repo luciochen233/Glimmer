@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{if .Paste}}Edit Paste{{else}}New Paste{{end}} — Admin</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul>
+			<li><a href="/">Home</a></li>
+			<li>
+				<form method="post" action="/admin/logout" style="margin:0">
+					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+					<button type="submit" class="outline secondary btn-sm">Logout</button>
+				</form>
+			</li>
+		</ul>
+	</nav>
+	<div class="admin-tabs">
+		<a href="/admin" class="tab-link">Links</a>
+		<a href="/admin/bin" class="tab-link active">Pastes</a>
+	</div>
+	<main class="container" style="max-width:860px">
+		<article>
+		<header>
+			<h2>{{if .Paste}}Edit Paste{{else}}New Paste{{end}}</h2>
+		</header>
+
+		{{if .Error}}
+		<article aria-label="error" class="alert-error">{{.Error}}</article>
+		{{end}}
+
+		{{if .Paste}}
+		{{with .Paste}}
+		<form method="post" action="/admin/bin/edit/{{.ID}}">
+		{{else}}{{end}}
+		{{else}}
+		<form method="post" action="/admin/bin/new">
+		{{end}}
+
+			<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+			<div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;">
+				<label>
+					Name <small>(URL slug)</small>
+					{{if .Paste}}
+					{{with .Paste}}<input type="text" name="name" value="{{.Name}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores">{{end}}
+					{{else}}
+					<input type="text" name="name" required pattern="[a-zA-Z0-9_-]+" placeholder="my-script" title="Letters, numbers, hyphens, underscores">
+					{{end}}
+				</label>
+				<label>
+					Title <small>(optional)</small>
+					{{if .Paste}}
+					{{with .Paste}}<input type="text" name="title" value="{{.Title}}" placeholder="A short description">{{end}}
+					{{else}}
+					<input type="text" name="title" placeholder="A short description">
+					{{end}}
+				</label>
+			</div>
+
+			<label>Format
+				<select name="format">
+					{{if .Paste}}
+					{{with .Paste}}
+					<option value="markdown"{{if eq .Format "markdown"}} selected{{end}}>Markdown</option>
+					<option value="text"{{if eq .Format "text"}} selected{{end}}>Plain text</option>
+					{{end}}
+					{{else}}
+					<option value="markdown" selected>Markdown</option>
+					<option value="text">Plain text</option>
+					{{end}}
+				</select>
+			</label>
+
+			<label>Content
+				{{if .Paste}}
+				{{with .Paste}}<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem">{{.Content}}</textarea>{{end}}
+				{{else}}
+				<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem" placeholder="# Hello&#10;&#10;Write your markdown here..."></textarea>
+				{{end}}
+			</label>
+
+			<fieldset>
+				<legend>Access Token</legend>
+				{{if .Paste}}
+				{{with .Paste}}
+				{{if .Token}}
+				<p>Current token: <code>{{.Token}}</code> &mdash; URL: <code>/bin/{{.Name}}/{{.Token}}</code></p>
+				<label><input type="radio" name="token_action" value="keep" checked> Keep current token</label>
+				<label><input type="radio" name="token_action" value="regenerate"> Regenerate token</label>
+				<label><input type="radio" name="token_action" value="disable"> Disable token (public access)</label>
+				{{else}}
+				<p>Token is currently <strong>disabled</strong> — paste is publicly accessible.</p>
+				<label><input type="radio" name="token_action" value="keep" checked> Keep disabled</label>
+				<label><input type="radio" name="token_action" value="regenerate"> Enable with new token</label>
+				{{end}}
+				{{end}}
+				{{else}}
+				<label><input type="radio" name="enable_token" value="0" checked> No token (public access)</label>
+				<label><input type="radio" name="enable_token" value="1"> Generate access token</label>
+				{{end}}
+			</fieldset>
+
+			<div role="group" style="margin-top:1rem">
+				<button type="submit">Save</button>
+				<a href="/admin/bin" role="button" class="outline secondary">Cancel</a>
+			</div>
+
+		</form>
+		{{if .Paste}}{{with .Paste}}{{end}}{{end}}
+		</article>
+	</main>
+</body>
+</html>

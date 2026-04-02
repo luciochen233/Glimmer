@@ -1,0 +1,370 @@
+:root {
+	--pico-font-size: 16px;
+}
+
+body > nav {
+	padding: 0.5rem 1rem;
+}
+
+.container {
+	max-width: 640px;
+	margin: 0 auto;
+	padding: 2rem 1rem;
+}
+
+.result-box {
+	background: var(--pico-card-background-color);
+	border: 2px solid var(--pico-primary);
+	border-radius: var(--pico-border-radius);
+	padding: 1rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: 1rem;
+}
+
+.result-box code {
+	flex: 1;
+	word-break: break-all;
+	font-size: 1.1rem;
+}
+
+.result-box button {
+	width: auto;
+	margin: 0;
+	padding: 0.4rem 0.8rem;
+}
+
+table td {
+	max-width: 300px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.actions {
+	display: flex;
+	gap: 0.25rem;
+}
+
+.actions form {
+	margin: 0;
+}
+
+.actions a, .actions button {
+	padding: 0.25rem 0.5rem;
+	font-size: 0.85rem;
+	margin: 0;
+}
+
+[role="group"] form {
+	margin: 0;
+	display: flex;
+}
+
+[role="group"] form button {
+	height: 100%;
+}
+
+h1 a {
+	text-decoration: none;
+	color: inherit;
+}
+
+.tile-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 0.5rem;
+	margin-bottom: 1rem;
+}
+
+.tile {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.2rem;
+	padding: 0.75rem 0.5rem;
+	border-radius: var(--pico-border-radius);
+	background: var(--pico-card-background-color);
+	border: 1px solid var(--pico-muted-border-color);
+	text-decoration: none;
+	text-align: center;
+	transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.tile:hover {
+	border-color: var(--pico-primary);
+	box-shadow: 0 4px 16px rgba(0,0,0,0.25), inset 0 0 0 1px var(--pico-primary);
+}
+
+.tile-slug {
+	font-weight: 600;
+	font-size: 1rem;
+	color: var(--pico-primary);
+}
+
+.tile-favicon {
+	width: 20px;
+	height: 20px;
+	border-radius: 3px;
+	margin-bottom: 0.1rem;
+}
+
+.tile-dest {
+	font-size: 0.72rem;
+	color: var(--pico-muted-color);
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tile-clicks {
+	font-size: 0.72rem;
+	color: var(--pico-muted-color);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Admin tab navigation */
+.admin-tabs {
+	display: flex;
+	gap: 0;
+	padding: 0 1rem;
+	border-bottom: 2px solid var(--pico-muted-border-color);
+	background: var(--pico-background-color);
+}
+
+.tab-link {
+	display: inline-block;
+	padding: 0.6rem 1.25rem;
+	text-decoration: none;
+	color: var(--pico-muted-color);
+	font-weight: 500;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -2px;
+	transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-link:hover {
+	color: var(--pico-primary);
+}
+
+.tab-link.active {
+	color: var(--pico-primary);
+	border-bottom-color: var(--pico-primary);
+}
+
+/* Paste view */
+.paste-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 1rem;
+	flex-wrap: wrap;
+	margin-bottom: 0.5rem;
+}
+
+.paste-toolbar {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.paste-toolbar button,
+.paste-toolbar a {
+	margin: 0;
+}
+
+.format-badge {
+	display: inline-block;
+	padding: 0.1rem 0.4rem;
+	border-radius: var(--pico-border-radius);
+	background: var(--pico-card-background-color);
+	border: 1px solid var(--pico-muted-border-color);
+	font-size: 0.75rem;
+	font-family: monospace;
+}
+
+/* Paste rendered markdown body */
+.paste-body {
+	line-height: 1.7;
+}
+
+.paste-body pre {
+	background: var(--pico-card-background-color);
+	border: 1px solid var(--pico-muted-border-color);
+	border-radius: var(--pico-border-radius);
+	padding: 1rem;
+	overflow-x: auto;
+}
+
+.paste-body code {
+	font-size: 0.9em;
+}
+
+.paste-body pre code {
+	background: none;
+	padding: 0;
+}
+
+.paste-body blockquote {
+	border-left: 4px solid var(--pico-muted-border-color);
+	margin: 0;
+	padding-left: 1rem;
+	color: var(--pico-muted-color);
+}
+
+.paste-body table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.paste-body th, .paste-body td {
+	border: 1px solid var(--pico-muted-border-color);
+	padding: 0.4rem 0.75rem;
+	text-align: left;
+	max-width: none;
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+}
+
+/* ── Admin redesign components ───────────────────────────────────────── */
+
+/* Stats bar */
+.stats-bar {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 1rem;
+	margin-bottom: 1.5rem;
+}
+
+.stats-card {
+	background: var(--pico-card-background-color);
+	border: 1px solid var(--pico-muted-border-color);
+	border-radius: var(--pico-border-radius);
+	padding: 1rem 1.25rem;
+	text-align: center;
+}
+
+.stats-card .stats-value {
+	font-size: 2rem;
+	font-weight: 700;
+	color: var(--pico-primary);
+	line-height: 1.1;
+	display: block;
+}
+
+.stats-card .stats-label {
+	font-size: 0.8rem;
+	color: var(--pico-muted-color);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	display: block;
+	margin-top: 0.25rem;
+}
+
+/* Section header (title left, action button right) */
+.section-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1rem 1.25rem 0;
+}
+
+.section-header hgroup {
+	margin: 0;
+}
+
+/* Card-wrapped table: no padding so table runs edge-to-edge */
+.card-table {
+	padding: 0;
+	overflow: hidden;
+}
+
+.card-table figure {
+	margin: 0.75rem 0 0;
+}
+
+/* Empty state */
+.empty-state {
+	padding: 3rem 1rem;
+	text-align: center;
+	color: var(--pico-muted-color);
+}
+
+.empty-state .empty-icon {
+	font-size: 2.5rem;
+	display: block;
+	margin-bottom: 0.75rem;
+}
+
+.empty-state p {
+	margin: 0 0 1rem;
+}
+
+/* Badges */
+mark.badge-format {
+	background: var(--pico-card-background-color);
+	color: var(--pico-primary);
+	border: 1px solid var(--pico-primary);
+	padding: 0.1rem 0.45rem;
+	font-size: 0.72rem;
+	font-family: monospace;
+	border-radius: var(--pico-border-radius);
+}
+
+mark.badge-token {
+	background: color-mix(in srgb, var(--pico-ins-color) 15%, transparent);
+	color: var(--pico-ins-color);
+	border: 1px solid var(--pico-ins-color);
+	padding: 0.1rem 0.45rem;
+	font-size: 0.72rem;
+	border-radius: var(--pico-border-radius);
+}
+
+mark.badge-public {
+	background: transparent;
+	color: var(--pico-muted-color);
+	border: 1px solid var(--pico-muted-border-color);
+	padding: 0.1rem 0.45rem;
+	font-size: 0.72rem;
+	border-radius: var(--pico-border-radius);
+}
+
+/* Centered login card */
+.login-wrap {
+	min-height: calc(100vh - 80px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 2rem 1rem;
+}
+
+.login-card {
+	width: 100%;
+	max-width: 420px;
+}
+
+/* Alert helpers (replace repeated inline styles) */
+.alert-success {
+	border-left: 4px solid var(--pico-ins-color);
+	padding: 0.75rem 1rem;
+	background: color-mix(in srgb, var(--pico-ins-color) 10%, transparent);
+}
+
+.alert-error {
+	border-left: 4px solid var(--pico-del-color);
+	padding: 0.75rem 1rem;
+	background: color-mix(in srgb, var(--pico-del-color) 10%, transparent);
+}
+
+/* Small button utility */
+.btn-sm {
+	margin: 0;
+	padding: 0.25rem 0.75rem;
+	font-size: 0.85rem;
+}

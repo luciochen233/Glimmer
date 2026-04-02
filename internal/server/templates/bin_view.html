@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	{{with .Paste}}{{with .Title}}<title>{{.}}</title>{{else}}<title>{{with $.Paste}}{{.Name}}{{end}}</title>{{end}}{{end}}
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul><li>{{if .LoggedIn}}<a href="/admin/bin">Admin</a>{{else}}<a href="/admin/login">Admin</a>{{end}}</li></ul>
+	</nav>
+	<main class="container" style="max-width:860px">
+		{{with .Paste}}
+		<div class="paste-header">
+			<div>
+				<h2 style="margin-bottom:0.25rem">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</h2>
+				<small style="color:var(--pico-muted-color)">
+					<code>/bin/{{.Name}}</code>
+					&nbsp;&middot;&nbsp;
+					<span class="format-badge">{{.Format}}</span>
+					&nbsp;&middot;&nbsp;
+					{{if .Token}}<span style="color:var(--pico-ins-color)">&#128274; token protected</span>{{else}}<span>public</span>{{end}}
+					&nbsp;&middot;&nbsp;
+					updated {{.UpdatedAt.Format "2006-01-02 15:04"}}
+				</small>
+			</div>
+			<div class="paste-toolbar">
+				<a href="?raw=1" role="button" class="outline" style="padding:0.3rem 0.75rem;font-size:0.85rem">Raw</a>
+				<button class="outline" style="padding:0.3rem 0.75rem;font-size:0.85rem"
+					onclick="navigator.clipboard.writeText(document.getElementById('paste-raw').innerText).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+			</div>
+		</div>
+		<hr>
+		{{end}}
+
+		<div class="paste-body">
+			{{.PasteBody}}
+		</div>
+
+		{{with .Paste}}
+		<pre id="paste-raw" style="display:none">{{.Content}}</pre>
+		{{end}}
+	</main>
+</body>
+</html>

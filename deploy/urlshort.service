@@ -1,0 +1,29 @@
+[Unit]
+Description=URL Shortener
+Documentation=https://github.com/
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=urlshort
+Group=urlshort
+WorkingDirectory=/opt/urlshort
+ExecStart=/opt/urlshort/urlshort -config /etc/urlshort/config.toml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=urlshort
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/urlshort
+
+[Install]
+WantedBy=multi-user.target

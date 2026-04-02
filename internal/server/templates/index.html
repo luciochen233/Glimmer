@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>URL Shortener</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul><li>{{if .LoggedIn}}<a href="/admin">Admin</a>{{else}}<a href="/admin/login">Admin</a>{{end}}</li></ul>
+	</nav>
+	<main class="container">
+		<hgroup>
+			<h2>Shorten a URL</h2>
+			<p>Paste a long URL and get a short link</p>
+		</hgroup>
+
+		{{if .Error}}
+		<article aria-label="error" style="border-left: 4px solid var(--pico-del-color); padding: 0.75rem 1rem;">
+			{{.Error}}
+		</article>
+		{{end}}
+
+		{{if .ShortURL}}
+		<article aria-label="success">
+			<p>Your short link is ready:</p>
+			<p><small>{{.OriginalURL}}</small></p>
+			<div class="result-box">
+				<code id="short-url">{{.ShortURL}}</code>
+				<button onclick="navigator.clipboard.writeText(document.getElementById('short-url').textContent).then(()=>{this.textContent='Copied!'})">Copy</button>
+			</div>
+			{{if .QRSVG}}
+			<div style="text-align:center; margin-top:1rem;">{{.QRSVG}}</div>
+			{{end}}
+		</article>
+		{{end}}
+
+		<form method="post" action="/shorten" id="shorten-form">
+			<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+			<label for="url">URL to shorten</label>
+			<input type="text" inputmode="url" id="url" name="url" placeholder="https://example.com/very/long/url" required>
+
+			{{if .LoggedIn}}
+			<label for="slug">Custom slug <small>(optional)</small></label>
+			<input type="text" id="slug" name="slug" placeholder="my-link" pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
+			{{end}}
+
+			<button type="submit">Shorten</button>
+		</form>
+		<script>
+			document.getElementById('shorten-form').addEventListener('submit', function() {
+				const input = document.getElementById('url');
+				if (input.value && !input.value.includes('://')) {
+					input.value = 'https://' + input.value;
+				}
+			});
+		</script>
+	</main>
+</body>
+</html>

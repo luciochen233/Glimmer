@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Admin Login — URL Shortener</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul><li><a href="/">Home</a></li></ul>
+	</nav>
+	<main>
+		<div class="login-wrap">
+			<article class="login-card">
+				<header>
+					<hgroup>
+						<h2>Admin Login</h2>
+						<p>Sign in to manage your links</p>
+					</hgroup>
+				</header>
+
+				{{if .Error}}
+				<article aria-label="error" class="alert-error">{{.Error}}</article>
+				{{end}}
+
+				<form method="post" action="/admin/login">
+					<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+					<label for="username">Username</label>
+					<input type="text" id="username" name="username" required autofocus>
+
+					<label for="password">Password</label>
+					<input type="password" id="password" name="password" required>
+
+					<button type="submit">Log in</button>
+				</form>
+			</article>
+		</div>
+	</main>
+</body>
+</html>

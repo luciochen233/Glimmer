@@ -1,0 +1,20 @@
+# URL Shortener Configuration
+
+[server]
+port = 8888
+base_url = "http://localhost:8888"
+read_timeout = "5s"
+write_timeout = "10s"
+
+[admin]
+username = "admin"
+# Default password: "admin" — change this!
+# Generate a new hash: ./urlshort --hash-password "your-password"
+password_hash = "$2a$10$WXBoF7ZB7fIRl5smdGH9seqlNbXWiCS7ZbGNk0ONb9xjS8499gBpu"
+session_hours = 24
+
+[database]
+path = "./data/urls.db"
+
+[slugs]
+length = 3

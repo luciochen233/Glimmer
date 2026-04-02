@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Edit Link — URL Shortener</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul>
+			<li><a href="/admin">Back to list</a></li>
+			<li>
+				<form method="post" action="/admin/logout" style="margin:0">
+					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+					<button type="submit" class="outline secondary btn-sm">Logout</button>
+				</form>
+			</li>
+		</ul>
+	</nav>
+	<main class="container">
+		<article>
+			<header>
+				<h2>Edit Link</h2>
+			</header>
+
+			{{if .Error}}
+			<article aria-label="error" class="alert-error">{{.Error}}</article>
+			{{end}}
+
+			{{with .Link}}
+			<form method="post" action="/admin/edit/{{.ID}}">
+				<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+				<label for="slug">Slug</label>
+				<input type="text" id="slug" name="slug" value="{{.Slug}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
+
+				<label for="url">Destination URL</label>
+				<input type="url" id="url" name="url" value="{{.URL}}" required>
+
+				<div role="group">
+					<button type="submit">Save</button>
+					<a href="/admin" role="button" class="outline secondary">Cancel</a>
+				</div>
+			</form>
+			{{end}}
+		</article>
+	</main>
+</body>
+</html>

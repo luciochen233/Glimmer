@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Pastes — Admin</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Shortener</a></strong></li></ul>
+		<ul>
+			<li><a href="/">Home</a></li>
+			<li>
+				<form method="post" action="/admin/logout" style="margin:0">
+					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+					<button type="submit" class="outline secondary btn-sm">Logout</button>
+				</form>
+			</li>
+		</ul>
+	</nav>
+	<div class="admin-tabs">
+		<a href="/admin" class="tab-link">Links</a>
+		<a href="/admin/bin" class="tab-link active">Pastes</a>
+	</div>
+	<main class="container" style="max-width:960px">
+		{{if .Error}}
+		<article aria-label="error" class="alert-error">{{.Error}}</article>
+		{{end}}
+
+		<article class="card-table">
+			<div class="section-header">
+				<hgroup>
+					<h2>Pastes</h2>
+					<p>{{len .Pastes}} pastes</p>
+				</hgroup>
+				<a href="/admin/bin/new" role="button" class="btn-sm">+ New Paste</a>
+			</div>
+			<figure>
+			<table role="grid">
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Title</th>
+						<th>Format</th>
+						<th>Token</th>
+						<th>Updated</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .Pastes}}
+					<tr>
+						<td><a href="/bin/{{.Name}}{{if .Token}}/{{.Token}}{{end}}" target="_blank">{{.Name}}</a></td>
+						<td>{{.Title}}</td>
+						<td><mark class="badge-format">{{.Format}}</mark></td>
+						<td>{{if .Token}}<mark class="badge-token">&#128274; token</mark>{{else}}<mark class="badge-public">public</mark>{{end}}</td>
+						<td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+						<td>
+							<div role="group">
+								<a href="/admin/bin/edit/{{.ID}}" role="button" class="outline">Edit</a>
+								<form method="post" action="/admin/bin/delete/{{.ID}}" onsubmit="return confirm('Delete paste {{.Name}}?')">
+									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+									<button type="submit" class="outline secondary">Del</button>
+								</form>
+							</div>
+						</td>
+					</tr>
+					{{else}}
+					<tr>
+						<td colspan="6">
+							<div class="empty-state">
+								<span class="empty-icon">&#128196;</span>
+								<p>No pastes yet.</p>
+								<a href="/admin/bin/new">Create your first paste</a>
+							</div>
+						</td>
+					</tr>
+					{{end}}
+				</tbody>
+			</table>
+			</figure>
+		</article>
+	</main>
+</body>
+</html>
