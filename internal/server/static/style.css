@@ -62,8 +62,13 @@ table td {
 	display: flex;
 }
 
-[role="group"] form button {
-	height: 100%;
+[role="group"] a[role="button"],
+[role="group"] form button,
+[role="group"] button {
+	padding: 0.25rem 0.5rem;
+	font-size: 0.85rem;
+	margin: 0;
+	white-space: nowrap;
 }
 
 h1 a {
