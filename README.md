@@ -1,6 +1,6 @@
-# urlshort
+# Glimmer
 
-A lightweight, single-binary URL shortener and pastebin built in Go. Designed to run on a Raspberry Pi Zero (512MB RAM, single-core ARM) with minimal dependencies and no external runtime requirements.
+A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [luci.ooo](https://luci.ooo). Designed to run on a Raspberry Pi Zero (512MB RAM, single-core ARM) with minimal dependencies and no external runtime requirements.
 
 ---
 
@@ -47,15 +47,15 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Designed to
 ## Project Layout
 
 ```
-urlshort/
+glimmer/
 ├── main.go                         # Entry point; flag parsing; --hash-password helper
 ├── config.toml                     # Runtime configuration (port, admin creds, db path)
 ├── go.mod / go.sum
 ├── Makefile
 ├── deploy/
 │   ├── install.sh                  # Install script (auto-detects systemd vs SysV)
-│   ├── urlshort.service            # systemd unit file (Ubuntu 15.04+)
-│   └── urlshort.init               # SysV init script (Ubuntu 14.04 and older)
+│   ├── glimmer.service            # systemd unit file (Ubuntu 15.04+)
+│   └── glimmer.init               # SysV init script (Ubuntu 14.04 and older)
 ├── data/
 │   └── urls.db                     # SQLite database (auto-created on first run)
 └── internal/
@@ -144,7 +144,7 @@ length = 3   # Auto-generated slug length (characters)
 ### 3. Set your admin password
 
 ```bash
-./urlshort --hash-password "your-secure-password"
+./glimmer --hash-password "your-secure-password"
 # or via make:
 make hash
 ```
@@ -156,15 +156,15 @@ Copy the printed bcrypt hash into `config.toml` under `admin.password_hash`.
 ```bash
 # Windows
 make build
-./urlshort.exe
+./glimmer.exe
 
 # Linux / macOS
 make build-linux
-./urlshort
+./glimmer
 
 # Raspberry Pi Zero (ARMv5)
 make build-arm
-# Copy urlshort-arm to the Pi, then run it there
+# Copy glimmer-arm to the Pi, then run it there
 ```
 
 The server starts on `http://localhost:8888` (or whatever port you set).
@@ -175,9 +175,9 @@ The server starts on `http://localhost:8888` (or whatever port you set).
 
 | Target | Description |
 |---|---|
-| `make build` | Build `urlshort.exe` for Windows (stripped binary) |
-| `make build-linux` | Build `urlshort` for Linux x86-64 |
-| `make build-arm` | Cross-compile `urlshort-arm` for Raspberry Pi Zero (ARMv5) |
+| `make build` | Build `glimmer.exe` for Windows (stripped binary) |
+| `make build-linux` | Build `glimmer` for Linux x86-64 |
+| `make build-arm` | Cross-compile `glimmer-arm` for Raspberry Pi Zero (ARMv5) |
 | `make run` | Build then immediately run on Windows |
 | `make clean` | Remove all compiled binaries |
 | `make hash` | Interactively hash a password for `config.toml` |
@@ -191,7 +191,7 @@ The server starts on `http://localhost:8888` (or whatever port you set).
 make build-arm
 
 # Copy binary, config, and deploy scripts to the Pi
-scp urlshort-arm    pi@raspberrypi.local:~/urlshort
+scp glimmer-arm    pi@raspberrypi.local:~/glimmer
 scp config.toml     pi@raspberrypi.local:~/config.toml
 scp -r deploy/      pi@raspberrypi.local:~/deploy/
 ```
@@ -204,31 +204,31 @@ The `deploy/` directory contains an install script and service files compatible 
 
 ```bash
 # On the Pi (or any Ubuntu/Debian host):
-chmod +x urlshort
+chmod +x glimmer
 sudo ./deploy/install.sh
 ```
 
 The script will:
-- Create a dedicated `urlshort` system user
-- Install the binary to `/opt/urlshort/`
-- Install the config to `/etc/urlshort/config.toml`
-- Create `/var/lib/urlshort/` for the database
+- Create a dedicated `glimmer` system user
+- Install the binary to `/opt/glimmer/`
+- Install the config to `/etc/glimmer/config.toml`
+- Create `/var/lib/glimmer/` for the database
 - Register and enable the service (systemd or SysV, auto-detected)
 
 **After install**, set your admin password hash in the config:
 
 ```bash
-/opt/urlshort/urlshort -hash-password "your-secure-password"
-# Paste the output into /etc/urlshort/config.toml → admin.password_hash
-sudo systemctl start urlshort
+/opt/glimmer/glimmer -hash-password "your-secure-password"
+# Paste the output into /etc/glimmer/config.toml → admin.password_hash
+sudo systemctl start glimmer
 ```
 
 **Service management:**
 
 ```bash
-sudo systemctl status urlshort
-sudo systemctl restart urlshort
-sudo journalctl -u urlshort -f      # live logs
+sudo systemctl status glimmer
+sudo systemctl restart glimmer
+sudo journalctl -u glimmer -f      # live logs
 ```
 
 ---
@@ -247,7 +247,7 @@ sudo apt install -y nginx
 ### 2. Create a site config
 
 ```bash
-sudo nano /etc/nginx/sites-available/urlshort
+sudo nano /etc/nginx/sites-available/glimmer
 ```
 
 Paste the following, replacing `short.example.com` with your domain:
@@ -271,7 +271,7 @@ server {
 ```
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/urlshort /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/glimmer /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -289,9 +289,9 @@ Certbot will automatically update the nginx config to add SSL and redirect HTTP 
 > **No public domain?** If running on a local network (e.g. Raspberry Pi at home), skip certbot and use a self-signed certificate instead:
 > ```bash
 > sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
->   -keyout /etc/ssl/private/urlshort.key \
->   -out /etc/ssl/certs/urlshort.crt \
->   -subj "/CN=urlshort"
+>   -keyout /etc/ssl/private/glimmer.key \
+>   -out /etc/ssl/certs/glimmer.crt \
+>   -subj "/CN=glimmer"
 > ```
 > Then reference them manually in the nginx config (`ssl_certificate`, `ssl_certificate_key`).
 
@@ -354,7 +354,7 @@ sudo nginx -t && sudo systemctl reload nginx
 base_url = "https://short.example.com"
 ```
 
-Then restart the service: `sudo systemctl restart urlshort`
+Then restart the service: `sudo systemctl restart glimmer`
 
 ### Verify everything works
 
@@ -365,8 +365,8 @@ curl -I http://short.example.com/
 # Confirm HTTPS proxy is working
 curl -I https://short.example.com/
 
-# Check urlshort is running and nginx can reach it
-sudo systemctl status urlshort
+# Check glimmer is running and nginx can reach it
+sudo systemctl status glimmer
 sudo systemctl status nginx
 ```
 
@@ -448,7 +448,7 @@ write_timeout = "10s"         # HTTP write timeout
 
 [admin]
 username      = "admin"       # Admin login username
-password_hash = "$2a$10$..."  # bcrypt hash — generate with: ./urlshort --hash-password
+password_hash = "$2a$10$..."  # bcrypt hash — generate with: ./glimmer --hash-password
 session_hours = 24            # How long admin sessions last
 
 [database]
@@ -462,7 +462,7 @@ length = 3                    # Length of auto-generated slugs (recommended: 3�
 
 ## Security Notes
 
-- **Change the default password.** The default hash in `config.toml` is for the password `admin`. Run `./urlshort --hash-password` immediately.
+- **Change the default password.** The default hash in `config.toml` is for the password `admin`. Run `./glimmer --hash-password` immediately.
 - **CSRF protection** uses the double-submit cookie pattern. Every admin POST requires a `csrf_token` form field matching the `csrf` cookie value, compared with constant-time equality.
 - **Sessions** are stored in memory. They are lost when the server restarts (acceptable for single-user use). Session IDs are 32 bytes of `crypto/rand`.
 - **Paste tokens** are 12-character random strings. Token comparison uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks.
@@ -476,15 +476,15 @@ length = 3                    # Length of auto-generated slugs (recommended: 3�
 
 ```bash
 export PATH="/c/Program Files/Go/bin:$PATH"
-pkill -f urlshort.exe; sleep 1
-go build -o urlshort.exe ./ && ./urlshort.exe &
+pkill -f glimmer.exe; sleep 1
+go build -o glimmer.exe ./ && ./glimmer.exe &
 ```
 
 ### Check logs
 
 ```bash
 # If started with output redirected:
-tail -f /tmp/urlshort.log
+tail -f /tmp/glimmer.log
 ```
 
 ### Useful one-liners

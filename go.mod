@@ -1,4 +1,4 @@
-module urlshort
+module glimmer
 
 go 1.26.1
 

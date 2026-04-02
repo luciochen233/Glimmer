@@ -8,9 +8,9 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"urlshort/internal/config"
-	"urlshort/internal/db"
-	"urlshort/internal/server"
+	"glimmer/internal/config"
+	"glimmer/internal/db"
+	"glimmer/internal/server"
 )
 
 func main() {

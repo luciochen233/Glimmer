@@ -1,15 +1,15 @@
 [Unit]
-Description=URL Shortener
+Description=Glimmer
 Documentation=https://github.com/
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-User=urlshort
-Group=urlshort
-WorkingDirectory=/opt/urlshort
-ExecStart=/opt/urlshort/urlshort -config /etc/urlshort/config.toml
+User=glimmer
+Group=glimmer
+WorkingDirectory=/opt/glimmer
+ExecStart=/opt/glimmer/glimmer -config /etc/glimmer/config.toml
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
@@ -17,13 +17,13 @@ TimeoutStopSec=10
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=urlshort
+SyslogIdentifier=glimmer
 
 # Hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/urlshort
+ReadWritePaths=/var/lib/glimmer
 
 [Install]
 WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-# URL Shortener Configuration
+# Glimmer Configuration
 
 [server]
 port = 8888
@@ -9,7 +9,7 @@ write_timeout = "10s"
 [admin]
 username = "admin"
 # Default password: "admin" — change this!
-# Generate a new hash: ./urlshort --hash-password "your-password"
+# Generate a new hash: ./glimmer --hash-password "your-password"
 password_hash = "$2a$10$WXBoF7ZB7fIRl5smdGH9seqlNbXWiCS7ZbGNk0ONb9xjS8499gBpu"
 session_hours = 24
 

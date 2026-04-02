@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"urlshort/internal/slug"
+	"glimmer/internal/slug"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"

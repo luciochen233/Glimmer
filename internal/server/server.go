@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"urlshort/internal/config"
-	"urlshort/internal/db"
+	"glimmer/internal/config"
+	"glimmer/internal/db"
 )
 
 type Server struct {
