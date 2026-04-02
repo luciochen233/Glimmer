@@ -19,7 +19,7 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [
 - Login protected with bcrypt-hashed password; centered dark-theme login card
 - **Dark UI** throughout all admin pages (login, dashboard, edit forms, pastes)
 - **Stats bar:** live counts of My Links, Anonymous Links, and Quick Links at a glance
-- **My Links** card: links the admin created, with edit/delete and click counts
+- **My Links** card: links the admin created, with edit/delete/QR and click counts
 - **Anonymous Links** card: links created by unauthenticated users, also manageable
 - **Quick Links tile grid:** Top 20 most-clicked admin links displayed as tiles with favicon, destination hostname, and click count; one click to open
 - **Pastes list:** format and token-status badges; empty states with guidance
@@ -70,7 +70,7 @@ glimmer/
         ├── handlers.go             # All request handlers; template rendering helpers
         ├── middleware.go           # requireAuth, requireCSRF, rateLimiter, sessionStore, clientIP
         ├── static/
-        │   └── style.css           # Custom styles on top of Pico CSS
+        │   └── style.css           # Custom styles on top of Pico CSS (no JS)
         └── templates/
             ├── index.html          # Public home: shorten form + QR result
             ├── admin_login.html    # Login form (dark, centered card)
@@ -392,6 +392,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `GET` | `/admin/edit/{id}` | Admin | Edit link form |
 | `POST` | `/admin/edit/{id}` | Admin | Save link edit (CSRF) |
 | `POST` | `/admin/delete/{id}` | Admin | Delete link (CSRF) |
+| `GET` | `/admin/qr/{slug}` | Admin | QR code SVG for a short link |
 | `GET` | `/admin/bin` | Admin | Pastes list |
 | `GET` | `/admin/bin/new` | Admin | New paste form |
 | `POST` | `/admin/bin/new` | Admin | Create paste (CSRF) |

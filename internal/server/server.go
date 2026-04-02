@@ -60,6 +60,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /admin/edit/{id}", s.requireAuth(s.handleAdminEdit))
 	mux.HandleFunc("POST /admin/edit/{id}", s.requireAuth(s.requireCSRF(s.handleAdminEditSave)))
 	mux.HandleFunc("POST /admin/delete/{id}", s.requireAuth(s.requireCSRF(s.handleAdminDelete)))
+	mux.HandleFunc("GET /admin/qr/{slug}", s.requireAuth(s.handleQR))
 
 	// Pastebin admin routes (protected)
 	mux.HandleFunc("GET /admin/bin", s.requireAuth(s.handleAdminBin))

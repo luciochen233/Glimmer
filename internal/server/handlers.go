@@ -76,6 +76,18 @@ func makeQRSVG(text string, size int) template.HTML {
 	return template.HTML(svg)
 }
 
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	fullURL := s.baseURL(r) + "/" + slug
+	svg := makeQRSVG(fullURL, 200)
+	if svg == "" {
+		http.Error(w, "QR generation failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(svg))
+}
+
 func (s *Server) baseURL(r *http.Request) string {
 	host := r.Host
 	if host == "" {
