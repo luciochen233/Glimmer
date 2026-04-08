@@ -418,6 +418,26 @@ func formatTime(t time.Time) string {
 
 // ---- Paste handlers ----
 
+func (s *Server) handleBinQR(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	paste, err := s.db.GetPasteByName(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	fullURL := s.baseURL(r) + "/bin/" + paste.Name
+	if r.URL.Query().Get("full") == "1" && paste.Token != "" {
+		fullURL += "/" + paste.Token
+	}
+	svg := makeQRSVG(fullURL, 200)
+	if svg == "" {
+		http.Error(w, "QR generation failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(svg))
+}
+
 func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	providedToken := r.PathValue("token")
@@ -432,9 +452,22 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Token check (constant-time to prevent timing attacks)
-	if paste.Token != "" && subtle.ConstantTimeCompare([]byte(paste.Token), []byte(providedToken)) != 1 {
-		http.Error(w, "Access denied: invalid or missing token.", http.StatusForbidden)
+	// Token check (constant-time, case-insensitive since QR codes uppercase URLs)
+	if paste.Token != "" && subtle.ConstantTimeCompare([]byte(strings.ToLower(paste.Token)), []byte(strings.ToLower(providedToken))) != 1 {
+		if paste.Hidden {
+			w.WriteHeader(http.StatusNotFound)
+			renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL(r)})
+			return
+		}
+		errMsg := ""
+		if providedToken != "" {
+			errMsg = "Invalid token. Please try again."
+		}
+		w.WriteHeader(http.StatusForbidden)
+		renderTemplate(w, "bin_token.html", pageData{
+			BaseURL: s.baseURL(r),
+			Error:   errMsg,
+		})
 		return
 	}
 
@@ -483,7 +516,8 @@ func (s *Server) handleAdminBinCreate(w http.ResponseWriter, r *http.Request) {
 	if format != "text" {
 		format = "markdown"
 	}
-	enableToken := r.FormValue("enable_token") == "1"
+	enableTokenVal := r.FormValue("enable_token")
+	hidden := r.FormValue("hidden") == "1"
 
 	newErrPage := func(msg string) {
 		d := s.adminPage(w, r)
@@ -510,11 +544,22 @@ func (s *Server) handleAdminBinCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := ""
-	if enableToken {
+	switch enableTokenVal {
+	case "1":
 		token = slug.Generate(12)
+	case "custom":
+		token = strings.TrimSpace(r.FormValue("custom_token"))
+		if token == "" {
+			newErrPage("Custom token cannot be empty")
+			return
+		}
+		if !validPasteName(token) {
+			newErrPage("Custom token must be alphanumeric with hyphens/underscores (max 64 chars)")
+			return
+		}
 	}
 
-	if _, err := s.db.CreatePaste(name, title, content, format, token); err != nil {
+	if _, err := s.db.CreatePaste(name, title, content, format, token, hidden); err != nil {
 		newErrPage("Failed to create paste")
 		return
 	}
@@ -560,7 +605,8 @@ func (s *Server) handleAdminBinSave(w http.ResponseWriter, r *http.Request) {
 	if format != "text" {
 		format = "markdown"
 	}
-	tokenAction := r.FormValue("token_action") // "keep", "disable", "regenerate"
+	tokenAction := r.FormValue("token_action") // "keep", "disable", "regenerate", "custom"
+	hidden := r.FormValue("hidden") == "1"
 
 	editErrPage := func(msg string) {
 		d := s.adminPage(w, r)
@@ -584,9 +630,19 @@ func (s *Server) handleAdminBinSave(w http.ResponseWriter, r *http.Request) {
 		token = ""
 	case "regenerate":
 		token = slug.Generate(12)
+	case "custom":
+		token = strings.TrimSpace(r.FormValue("custom_token"))
+		if token == "" {
+			editErrPage("Custom token cannot be empty")
+			return
+		}
+		if !validPasteName(token) {
+			editErrPage("Custom token must be alphanumeric with hyphens/underscores (max 64 chars)")
+			return
+		}
 	}
 
-	if err := s.db.UpdatePaste(id, name, title, content, format, token); err != nil {
+	if err := s.db.UpdatePaste(id, name, title, content, format, token, hidden); err != nil {
 		editErrPage("Failed to save: name may already be taken")
 		return
 	}

@@ -340,6 +340,15 @@ mark.badge-public {
 	border-radius: var(--pico-border-radius);
 }
 
+mark.badge-hidden {
+	background: color-mix(in srgb, var(--pico-del-color) 15%, transparent);
+	color: var(--pico-del-color);
+	border: 1px solid var(--pico-del-color);
+	padding: 0.1rem 0.45rem;
+	font-size: 0.72rem;
+	border-radius: var(--pico-border-radius);
+}
+
 /* Centered login card */
 .login-wrap {
 	min-height: calc(100vh - 80px);

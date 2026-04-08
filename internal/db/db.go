@@ -17,6 +17,7 @@ type Paste struct {
 	Content   string
 	Format    string
 	Token     string // empty = disabled
+	Hidden    bool   // return 404 instead of token prompt
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -83,6 +84,7 @@ func migrate(conn *sql.DB) error {
 	// Add columns if upgrading from older schema
 	conn.Exec(`ALTER TABLE links ADD COLUMN created_by TEXT NOT NULL DEFAULT 'anonymous'`)
 	conn.Exec(`ALTER TABLE links ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0`)
+	conn.Exec(`ALTER TABLE pastes ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`)
 
 	return nil
 }
@@ -182,35 +184,39 @@ func scanLinks(rows *sql.Rows) ([]Link, error) {
 
 // ---- Paste CRUD ----
 
-func (d *DB) CreatePaste(name, title, content, format, token string) (*Paste, error) {
+func (d *DB) CreatePaste(name, title, content, format, token string, hidden bool) (*Paste, error) {
 	var tokenVal interface{}
 	if token != "" {
 		tokenVal = token
 	}
+	hiddenVal := 0
+	if hidden {
+		hiddenVal = 1
+	}
 	res, err := d.conn.Exec(
-		"INSERT INTO pastes (name, title, content, format, token) VALUES (?, ?, ?, ?, ?)",
-		name, title, content, format, tokenVal,
+		"INSERT INTO pastes (name, title, content, format, token, hidden) VALUES (?, ?, ?, ?, ?, ?)",
+		name, title, content, format, tokenVal, hiddenVal,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
 	now := time.Now()
-	return &Paste{ID: id, Name: name, Title: title, Content: content, Format: format, Token: token, CreatedAt: now, UpdatedAt: now}, nil
+	return &Paste{ID: id, Name: name, Title: title, Content: content, Format: format, Token: token, Hidden: hidden, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (d *DB) GetPasteByName(name string) (*Paste, error) {
-	row := d.conn.QueryRow("SELECT id, name, title, content, format, COALESCE(token,''), created_at, updated_at FROM pastes WHERE name = ?", name)
+	row := d.conn.QueryRow("SELECT id, name, title, content, format, COALESCE(token,''), hidden, created_at, updated_at FROM pastes WHERE name = ? COLLATE NOCASE", name)
 	return scanPaste(row)
 }
 
 func (d *DB) GetPasteByID(id int64) (*Paste, error) {
-	row := d.conn.QueryRow("SELECT id, name, title, content, format, COALESCE(token,''), created_at, updated_at FROM pastes WHERE id = ?", id)
+	row := d.conn.QueryRow("SELECT id, name, title, content, format, COALESCE(token,''), hidden, created_at, updated_at FROM pastes WHERE id = ?", id)
 	return scanPaste(row)
 }
 
 func (d *DB) ListPastes() ([]Paste, error) {
-	rows, err := d.conn.Query("SELECT id, name, title, content, format, COALESCE(token,''), created_at, updated_at FROM pastes ORDER BY updated_at DESC")
+	rows, err := d.conn.Query("SELECT id, name, title, content, format, COALESCE(token,''), hidden, created_at, updated_at FROM pastes ORDER BY updated_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -218,10 +224,12 @@ func (d *DB) ListPastes() ([]Paste, error) {
 	var pastes []Paste
 	for rows.Next() {
 		var p Paste
+		var hidden int
 		var created, updated string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Title, &p.Content, &p.Format, &p.Token, &created, &updated); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Title, &p.Content, &p.Format, &p.Token, &hidden, &created, &updated); err != nil {
 			return nil, err
 		}
+		p.Hidden = hidden != 0
 		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
 		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updated)
 		pastes = append(pastes, p)
@@ -229,14 +237,18 @@ func (d *DB) ListPastes() ([]Paste, error) {
 	return pastes, rows.Err()
 }
 
-func (d *DB) UpdatePaste(id int64, name, title, content, format, token string) error {
+func (d *DB) UpdatePaste(id int64, name, title, content, format, token string, hidden bool) error {
 	var tokenVal interface{}
 	if token != "" {
 		tokenVal = token
 	}
+	hiddenVal := 0
+	if hidden {
+		hiddenVal = 1
+	}
 	_, err := d.conn.Exec(
-		"UPDATE pastes SET name=?, title=?, content=?, format=?, token=?, updated_at=datetime('now') WHERE id=?",
-		name, title, content, format, tokenVal, id,
+		"UPDATE pastes SET name=?, title=?, content=?, format=?, token=?, hidden=?, updated_at=datetime('now') WHERE id=?",
+		name, title, content, format, tokenVal, hiddenVal, id,
 	)
 	return err
 }
@@ -254,10 +266,12 @@ func (d *DB) PasteNameExists(name string) (bool, error) {
 
 func scanPaste(row *sql.Row) (*Paste, error) {
 	var p Paste
+	var hidden int
 	var created, updated string
-	if err := row.Scan(&p.ID, &p.Name, &p.Title, &p.Content, &p.Format, &p.Token, &created, &updated); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Title, &p.Content, &p.Format, &p.Token, &hidden, &created, &updated); err != nil {
 		return nil, err
 	}
+	p.Hidden = hidden != 0
 	p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
 	p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updated)
 	return &p, nil

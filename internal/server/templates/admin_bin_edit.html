@@ -91,18 +91,35 @@
 				{{with .Paste}}
 				{{if .Token}}
 				<p>Current token: <code>{{.Token}}</code> &mdash; URL: <code>/bin/{{.Name}}/{{.Token}}</code></p>
-				<label><input type="radio" name="token_action" value="keep" checked> Keep current token</label>
-				<label><input type="radio" name="token_action" value="regenerate"> Regenerate token</label>
-				<label><input type="radio" name="token_action" value="disable"> Disable token (public access)</label>
+				<label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep current token</label>
+				<label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Regenerate token</label>
+				<label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
+				<label><input type="radio" name="token_action" value="disable" onchange="toggleCustomToken()"> Disable token (public access)</label>
 				{{else}}
 				<p>Token is currently <strong>disabled</strong> — paste is publicly accessible.</p>
-				<label><input type="radio" name="token_action" value="keep" checked> Keep disabled</label>
-				<label><input type="radio" name="token_action" value="regenerate"> Enable with new token</label>
+				<label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep disabled</label>
+				<label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Enable with new token</label>
+				<label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
 				{{end}}
+				<div id="custom-token-wrap" style="display:none;margin-left:2rem">
+					<input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
+				</div>
+				<label style="margin-top:0.5rem">
+					<input type="checkbox" name="hidden" value="1" {{if .Hidden}}checked{{end}}>
+					Hide paste (return 404 if accessed without token)
+				</label>
 				{{end}}
 				{{else}}
-				<label><input type="radio" name="enable_token" value="0" checked> No token (public access)</label>
-				<label><input type="radio" name="enable_token" value="1"> Generate access token</label>
+				<label><input type="radio" name="enable_token" value="0" checked onchange="toggleCustomToken()"> No token (public access)</label>
+				<label><input type="radio" name="enable_token" value="1" onchange="toggleCustomToken()"> Generate access token</label>
+				<label><input type="radio" name="enable_token" value="custom" onchange="toggleCustomToken()"> Custom token</label>
+				<div id="custom-token-wrap" style="display:none;margin-left:2rem">
+					<input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
+				</div>
+				<label style="margin-top:0.5rem">
+					<input type="checkbox" name="hidden" value="1">
+					Hide paste (return 404 if accessed without token)
+				</label>
 				{{end}}
 			</fieldset>
 
@@ -115,5 +132,14 @@
 		{{if .Paste}}{{with .Paste}}{{end}}{{end}}
 		</article>
 	</main>
+<script>
+	function toggleCustomToken() {
+		var wrap = document.getElementById('custom-token-wrap');
+		if (!wrap) return;
+		var checked = document.querySelector('input[name="token_action"][value="custom"]:checked') ||
+		              document.querySelector('input[name="enable_token"][value="custom"]:checked');
+		wrap.style.display = checked ? 'block' : 'none';
+	}
+</script>
 </body>
 </html>

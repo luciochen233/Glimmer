@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Access Token Required — Glimmer</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
+		<ul><li><a href="/">Home</a></li></ul>
+	</nav>
+	<main class="container" style="max-width:480px;padding-top:4rem;text-align:center">
+		<p style="font-size:4rem;line-height:1;margin:0">&#128274;</p>
+		<h2 style="margin-top:0.5rem">Access Token Required</h2>
+		<p style="color:var(--pico-muted-color)">This paste is protected. Enter the access token to view it.</p>
+
+		{{if .Error}}
+		<article aria-label="error" class="alert-error" style="text-align:left">{{.Error}}</article>
+		{{end}}
+
+		<form id="token-form" style="text-align:left;margin-top:1.5rem">
+			<label>
+				Token
+				<input type="text" id="token-input" required placeholder="Enter access token" autofocus>
+			</label>
+			<button type="submit" style="width:100%">View Paste</button>
+		</form>
+	</main>
+<script>
+	document.getElementById('token-form').addEventListener('submit', function(e) {
+		e.preventDefault();
+		var token = document.getElementById('token-input').value.trim();
+		if (token) {
+			window.location.href = window.location.pathname + '/' + encodeURIComponent(token);
+		}
+	});
+</script>
+</body>
+</html>

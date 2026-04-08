@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"glimmer/internal/config"
@@ -33,6 +34,21 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// lowercasePath normalises the URL path to lowercase so that QR-code
+// generated uppercase URLs (e.g. /BIN/TEST/TOKEN) resolve correctly.
+// Static and admin paths are excluded to avoid breaking file serving.
+func lowercasePath(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lower := strings.ToLower(r.URL.Path)
+		if lower != r.URL.Path && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(lower, "/admin") {
+			r.URL.Path = lower
+			http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -69,6 +85,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /admin/bin/edit/{id}", s.requireAuth(s.handleAdminBinEdit))
 	mux.HandleFunc("POST /admin/bin/edit/{id}", s.requireAuth(s.requireCSRF(s.handleAdminBinSave)))
 	mux.HandleFunc("POST /admin/bin/delete/{id}", s.requireAuth(s.requireCSRF(s.handleAdminBinDelete)))
+	mux.HandleFunc("GET /admin/bin/qr/{name}", s.requireAuth(s.handleBinQR))
 
 	// Pastebin public routes (before catch-all)
 	mux.HandleFunc("GET /bin/{name}", s.handleBinView)
@@ -86,6 +103,6 @@ func (s *Server) Start() error {
 	}
 
 	log.Printf("Starting server on %s (base URL: %s)", addr, s.cfg.Server.BaseURL)
-	srv.Handler = securityHeaders(mux)
+	srv.Handler = lowercasePath(securityHeaders(mux))
 	return srv.ListenAndServe()
 }
