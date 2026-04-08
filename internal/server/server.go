@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func securityHeaders(next http.Handler) http.Handler {
 func lowercasePath(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lower := strings.ToLower(r.URL.Path)
-		if lower != r.URL.Path && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(lower, "/admin") {
+		if lower != r.URL.Path && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(lower, "/admin") && !strings.HasPrefix(r.URL.Path, "/uploads/") {
 			r.URL.Path = lower
 			http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
 			return
@@ -56,11 +57,19 @@ func lowercasePath(next http.Handler) http.Handler {
 func (s *Server) Start() error {
 	initTemplates()
 
+	// Ensure upload directory exists
+	if err := os.MkdirAll(s.cfg.Upload.Dir, 0755); err != nil {
+		return fmt.Errorf("creating upload directory: %w", err)
+	}
+
 	mux := http.NewServeMux()
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+
+	// Uploaded images (public — images appear in public pastes)
+	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.cfg.Upload.Dir))))
 
 	// Public routes
 	mux.HandleFunc("GET /{$}", s.handleIndex)
@@ -86,6 +95,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /admin/bin/edit/{id}", s.requireAuth(s.requireCSRF(s.handleAdminBinSave)))
 	mux.HandleFunc("POST /admin/bin/delete/{id}", s.requireAuth(s.requireCSRF(s.handleAdminBinDelete)))
 	mux.HandleFunc("GET /admin/bin/qr/{name}", s.requireAuth(s.handleBinQR))
+	mux.HandleFunc("POST /admin/upload", s.requireAuth(s.handleUpload))
+	mux.HandleFunc("GET /admin/uploads", s.requireAuth(s.handleAdminUploads))
+	mux.HandleFunc("POST /admin/uploads/delete/{filename}", s.requireAuth(s.requireCSRF(s.handleAdminUploadDelete)))
+	mux.HandleFunc("POST /admin/uploads/resize/{filename}", s.requireAuth(s.handleAdminUploadResize))
 
 	// Pastebin public routes (before catch-all)
 	mux.HandleFunc("GET /bin/{name}", s.handleBinView)

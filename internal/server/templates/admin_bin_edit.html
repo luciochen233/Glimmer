@@ -24,6 +24,7 @@
 	<div class="admin-tabs">
 		<a href="/admin" class="tab-link">Links</a>
 		<a href="/admin/bin" class="tab-link active">Pastes</a>
+		<a href="/admin/uploads" class="tab-link">Uploads</a>
 	</div>
 	<main class="container" style="max-width:860px">
 		<article>
@@ -77,13 +78,17 @@
 				</select>
 			</label>
 
-			<label>Content
-				{{if .Paste}}
-				{{with .Paste}}<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem">{{.Content}}</textarea>{{end}}
-				{{else}}
-				<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem" placeholder="# Hello&#10;&#10;Write your markdown here..."></textarea>
-				{{end}}
-			</label>
+			<label>Content</label>
+			<div class="upload-controls">
+				<button type="button" id="upload-btn" class="outline secondary">Upload Image</button>
+				<input type="file" id="file-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+				<small id="upload-status"></small>
+			</div>
+			{{if .Paste}}
+			{{with .Paste}}<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem">{{.Content}}</textarea>{{end}}
+			{{else}}
+			<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem" placeholder="# Hello&#10;&#10;Write your markdown here..."></textarea>
+			{{end}}
 
 			<fieldset>
 				<legend>Access Token</legend>
@@ -140,6 +145,79 @@
 		              document.querySelector('input[name="enable_token"][value="custom"]:checked');
 		wrap.style.display = checked ? 'block' : 'none';
 	}
+
+	(function() {
+		var textarea = document.querySelector('textarea[name="content"]');
+		var uploadBtn = document.getElementById('upload-btn');
+		var fileInput = document.getElementById('file-input');
+		var status = document.getElementById('upload-status');
+
+		function getCsrfToken() {
+			var match = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+			return match ? match[1] : '';
+		}
+
+		function uploadFile(file) {
+			if (!file || !file.type.startsWith('image/')) {
+				status.textContent = 'Not an image file';
+				return;
+			}
+			if (file.size > 50 * 1024 * 1024) {
+				status.textContent = 'File too large (max 50 MB)';
+				return;
+			}
+
+			status.textContent = 'Uploading\u2026';
+			uploadBtn.disabled = true;
+			var fd = new FormData();
+			fd.append('file', file);
+			fd.append('csrf_token', getCsrfToken());
+
+			fetch('/admin/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
+				.then(function(res) { return res.json(); })
+				.then(function(data) {
+					uploadBtn.disabled = false;
+					if (data.error) {
+						status.textContent = 'Error: ' + data.error;
+						return;
+					}
+					insertAtCursor(data.markdown);
+					status.textContent = 'Uploaded';
+					setTimeout(function() { status.textContent = ''; }, 3000);
+				})
+				.catch(function() {
+					uploadBtn.disabled = false;
+					status.textContent = 'Upload failed';
+				});
+		}
+
+		function insertAtCursor(text) {
+			var start = textarea.selectionStart;
+			var end = textarea.selectionEnd;
+			var before = textarea.value.substring(0, start);
+			var after = textarea.value.substring(end);
+			textarea.value = before + text + '\n' + after;
+			textarea.selectionStart = textarea.selectionEnd = start + text.length + 1;
+			textarea.focus();
+		}
+
+		uploadBtn.addEventListener('click', function() { fileInput.click(); });
+		fileInput.addEventListener('change', function() {
+			if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+			fileInput.value = '';
+		});
+
+		textarea.addEventListener('paste', function(e) {
+			var items = (e.clipboardData || {}).items || [];
+			for (var i = 0; i < items.length; i++) {
+				if (items[i].type.indexOf('image') !== -1) {
+					e.preventDefault();
+					uploadFile(items[i].getAsFile());
+					return;
+				}
+			}
+		});
+	})();
 </script>
 </body>
 </html>

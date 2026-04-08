@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Uploads — Admin</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<nav>
+		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
+		<ul>
+			<li><a href="/">Home</a></li>
+			<li>
+				<form method="post" action="/admin/logout" style="margin:0">
+					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+					<button type="submit" class="outline secondary btn-sm">Logout</button>
+				</form>
+			</li>
+		</ul>
+	</nav>
+	<div class="admin-tabs">
+		<a href="/admin" class="tab-link">Links</a>
+		<a href="/admin/bin" class="tab-link">Pastes</a>
+		<a href="/admin/uploads" class="tab-link active">Uploads</a>
+	</div>
+	<main class="container" style="max-width:960px">
+		{{if .Error}}
+		<article aria-label="error" class="alert-error">{{.Error}}</article>
+		{{end}}
+
+		<article class="card-table">
+			<div class="section-header">
+				<hgroup>
+					<h2>Uploads</h2>
+					<p>{{len .Uploads}} images</p>
+				</hgroup>
+				<div class="upload-controls">
+					<button type="button" id="upload-btn" class="btn-sm">Upload Image</button>
+					<input type="file" id="file-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+					<small id="upload-status"></small>
+				</div>
+			</div>
+			<figure>
+			<table role="grid">
+				<thead>
+					<tr>
+						<th>Preview</th>
+						<th>File</th>
+						<th>Size</th>
+						<th>Dimensions</th>
+						<th>Uploaded</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .Uploads}}
+					<tr>
+						<td><a href="{{.URL}}" target="_blank"><img src="{{.URL}}" style="max-width:72px;max-height:52px;object-fit:contain;border-radius:4px"></a></td>
+						<td><code style="font-size:0.75rem">{{.Filename}}</code></td>
+						<td id="size-{{.Filename}}">{{.SizeHuman}}</td>
+						<td id="dim-{{.Filename}}">{{if .Width}}{{.Width}}&times;{{.Height}}{{else}}&mdash;{{end}}</td>
+						<td>{{.ModTime.Format "2006-01-02 15:04"}}</td>
+						<td>
+							<div role="group">
+								<button type="button" class="outline btn-sm" onclick="copyMarkdown('{{.Filename}}', this)">Copy</button>
+								{{if .CanResize}}<button type="button" class="outline btn-sm" onclick="openResize('{{.Filename}}', {{.Width}}, {{.Height}})">Resize</button>{{end}}
+								<form method="post" action="/admin/uploads/delete/{{.Filename}}" onsubmit="return confirm('Delete this image?')" style="margin:0">
+									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+									<button type="submit" class="outline secondary btn-sm">Del</button>
+								</form>
+							</div>
+						</td>
+					</tr>
+					{{else}}
+					<tr>
+						<td colspan="6">
+							<div class="empty-state">
+								<span class="empty-icon">&#128444;</span>
+								<p>No uploads yet. Use the button above to upload an image.</p>
+							</div>
+						</td>
+					</tr>
+					{{end}}
+				</tbody>
+			</table>
+			</figure>
+		</article>
+	</main>
+
+	<dialog id="resize-dialog">
+		<article>
+			<header>
+				<button aria-label="Close" rel="prev" onclick="document.getElementById('resize-dialog').close()"></button>
+				<h3>Resize Image</h3>
+			</header>
+			<p id="resize-current" style="color:var(--pico-muted-color)"></p>
+			<label>
+				Max dimension (px)
+				<input type="number" id="resize-dim" value="1200" min="64" max="8192" step="1">
+			</label>
+			<small id="resize-status" style="color:var(--pico-muted-color)"></small>
+			<footer>
+				<button type="button" class="secondary outline" onclick="document.getElementById('resize-dialog').close()">Cancel</button>
+				<button type="button" id="resize-confirm">Resize</button>
+			</footer>
+		</article>
+	</dialog>
+
+<script>
+	var currentResizeFile = '';
+
+	function getCsrfToken() {
+		var match = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+		return match ? match[1] : '';
+	}
+
+	function copyMarkdown(filename, btn) {
+		var md = '![](' + '/uploads/' + filename + ')';
+		navigator.clipboard.writeText(md).then(function() {
+			var orig = btn.textContent;
+			btn.textContent = 'Copied!';
+			setTimeout(function() { btn.textContent = orig; }, 1500);
+		});
+	}
+
+	function openResize(filename, w, h) {
+		currentResizeFile = filename;
+		document.getElementById('resize-current').textContent = 'Current: ' + w + '\u00d7' + h;
+		document.getElementById('resize-status').textContent = '';
+		document.getElementById('resize-confirm').disabled = false;
+		document.getElementById('resize-dialog').showModal();
+	}
+
+	document.getElementById('resize-confirm').addEventListener('click', function() {
+		var dim = document.getElementById('resize-dim').value;
+		var status = document.getElementById('resize-status');
+		var btn = this;
+		status.textContent = 'Resizing\u2026';
+		btn.disabled = true;
+
+		var fd = new FormData();
+		fd.append('csrf_token', getCsrfToken());
+		fd.append('max_dim', dim);
+
+		fetch('/admin/uploads/resize/' + currentResizeFile, { method: 'POST', body: fd, credentials: 'same-origin' })
+			.then(function(r) { return r.json(); })
+			.then(function(data) {
+				btn.disabled = false;
+				if (data.error) {
+					status.textContent = 'Error: ' + data.error;
+					return;
+				}
+				var sizeEl = document.getElementById('size-' + currentResizeFile);
+				var dimEl = document.getElementById('dim-' + currentResizeFile);
+				if (sizeEl) sizeEl.textContent = data.size_human;
+				if (dimEl) dimEl.textContent = data.width + '\u00d7' + data.height;
+				status.textContent = 'Done \u2014 ' + data.size_human;
+				// Bust the image cache
+				var imgs = document.querySelectorAll('img[src="/uploads/' + currentResizeFile + '"]');
+				imgs.forEach(function(img) { img.src = '/uploads/' + currentResizeFile + '?t=' + Date.now(); });
+			})
+			.catch(function() {
+				btn.disabled = false;
+				status.textContent = 'Failed';
+			});
+	});
+
+	// Upload button
+	var uploadBtn = document.getElementById('upload-btn');
+	var fileInput = document.getElementById('file-input');
+	var uploadStatus = document.getElementById('upload-status');
+
+	uploadBtn.addEventListener('click', function() { fileInput.click(); });
+	fileInput.addEventListener('change', function() {
+		if (fileInput.files.length > 0) doUpload(fileInput.files[0]);
+		fileInput.value = '';
+	});
+
+	function doUpload(file) {
+		if (!file || !file.type.startsWith('image/')) {
+			uploadStatus.textContent = 'Not an image file';
+			return;
+		}
+		if (file.size > 50 * 1024 * 1024) {
+			uploadStatus.textContent = 'File too large (max 50 MB)';
+			return;
+		}
+		uploadStatus.textContent = 'Uploading\u2026';
+		uploadBtn.disabled = true;
+		var fd = new FormData();
+		fd.append('file', file);
+		fd.append('csrf_token', getCsrfToken());
+		fetch('/admin/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
+			.then(function(r) { return r.json(); })
+			.then(function(data) {
+				uploadBtn.disabled = false;
+				if (data.error) {
+					uploadStatus.textContent = 'Error: ' + data.error;
+				} else {
+					location.reload();
+				}
+			})
+			.catch(function() {
+				uploadBtn.disabled = false;
+				uploadStatus.textContent = 'Upload failed';
+			});
+	}
+</script>
+</body>
+</html>

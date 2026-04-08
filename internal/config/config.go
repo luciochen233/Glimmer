@@ -13,6 +13,7 @@ type Config struct {
 	Admin    AdminConfig    `toml:"admin"`
 	Database DatabaseConfig `toml:"database"`
 	Slugs    SlugConfig     `toml:"slugs"`
+	Upload   UploadConfig   `toml:"upload"`
 }
 
 type ServerConfig struct {
@@ -34,6 +35,11 @@ type DatabaseConfig struct {
 
 type SlugConfig struct {
 	Length int `toml:"length"`
+}
+
+type UploadConfig struct {
+	Dir     string `toml:"dir"`
+	MaxSize int64  `toml:"max_size_mb"`
 }
 
 func (c *ServerConfig) ReadTimeoutDuration() time.Duration {
@@ -69,6 +75,10 @@ func Load(path string) (*Config, error) {
 		},
 		Slugs: SlugConfig{
 			Length: 3,
+		},
+		Upload: UploadConfig{
+			Dir:     "./data/uploads",
+			MaxSize: 50,
 		},
 	}
 

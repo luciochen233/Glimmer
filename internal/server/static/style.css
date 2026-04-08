@@ -382,3 +382,23 @@ mark.badge-hidden {
 	padding: 0.25rem 0.75rem;
 	font-size: 0.85rem;
 }
+
+/* Image upload controls */
+.upload-controls {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.25rem;
+}
+
+.upload-controls button {
+	width: auto;
+	margin: 0;
+	padding: 0.3rem 0.75rem;
+	font-size: 0.85rem;
+}
+
+#upload-status {
+	color: var(--pico-muted-color);
+	font-size: 0.8rem;
+}

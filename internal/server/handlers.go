@@ -2,12 +2,26 @@ package server
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	_ "image/gif"
+	"image/jpeg"
+	"image/png"
+	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +50,20 @@ type pageData struct {
 	Paste       any
 	Pastes      any
 	PasteBody   template.HTML
+	Uploads     any
 	LoggedIn    bool
 	CSRFToken   string
+}
+
+type UploadInfo struct {
+	Filename  string
+	SizeHuman string
+	Size      int64
+	URL       string
+	Width     int
+	Height    int
+	CanResize bool
+	ModTime   time.Time
 }
 
 var mdRenderer = goldmark.New(
@@ -657,6 +683,302 @@ func (s *Server) handleAdminBinDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.db.DeletePaste(id)
 	http.Redirect(w, r, "/admin/bin", http.StatusSeeOther)
+}
+
+// ---- Upload helpers ----
+
+var validUploadRe = regexp.MustCompile(`^[0-9a-f]{32}\.(png|jpg|gif|webp)$`)
+
+func validUploadFilename(name string) bool {
+	return validUploadRe.MatchString(name)
+}
+
+func formatBytes(n int64) string {
+	switch {
+	case n >= 1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	case n >= 1024:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
+func jsonError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func scaleImage(src image.Image, maxDim int) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxDim && h <= maxDim {
+		return src
+	}
+	var newW, newH int
+	if w >= h {
+		newW = maxDim
+		newH = int(math.Round(float64(h) * float64(maxDim) / float64(w)))
+	} else {
+		newH = maxDim
+		newW = int(math.Round(float64(w) * float64(maxDim) / float64(h)))
+	}
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, newW, newH))
+	scaleX := float64(w) / float64(newW)
+	scaleY := float64(h) / float64(newH)
+	for y := 0; y < newH; y++ {
+		for x := 0; x < newW; x++ {
+			srcX := int(float64(x)*scaleX) + b.Min.X
+			srcY := int(float64(y)*scaleY) + b.Min.Y
+			r, g, bl, a := src.At(srcX, srcY).RGBA()
+			dst.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(r >> 8),
+				G: uint8(g >> 8),
+				B: uint8(bl >> 8),
+				A: uint8(a >> 8),
+			})
+		}
+	}
+	return dst
+}
+
+// ---- Upload management handlers ----
+
+func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
+	entries, err := os.ReadDir(s.cfg.Upload.Dir)
+	if err != nil && !os.IsNotExist(err) {
+		http.Error(w, "Failed to read uploads", http.StatusInternalServerError)
+		return
+	}
+
+	var uploads []UploadInfo
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !validUploadFilename(name) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		ui := UploadInfo{
+			Filename:  name,
+			Size:      info.Size(),
+			SizeHuman: formatBytes(info.Size()),
+			URL:       "/uploads/" + name,
+			ModTime:   info.ModTime(),
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
+			if cfg, _, err := image.DecodeConfig(f); err == nil {
+				ui.Width = cfg.Width
+				ui.Height = cfg.Height
+			}
+			f.Close()
+		}
+		if ext == ".png" || ext == ".jpg" {
+			ui.CanResize = true
+		}
+		uploads = append(uploads, ui)
+	}
+
+	sort.Slice(uploads, func(i, j int) bool {
+		return uploads[i].ModTime.After(uploads[j].ModTime)
+	})
+
+	d := s.adminPage(w, r)
+	d.Uploads = uploads
+	renderTemplate(w, "admin_uploads.html", d)
+}
+
+func (s *Server) handleAdminUploadDelete(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("filename")
+	if !validUploadFilename(filename) {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+	os.Remove(filepath.Join(s.cfg.Upload.Dir, filename))
+	http.Redirect(w, r, "/admin/uploads", http.StatusSeeOther)
+}
+
+func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request) {
+	filename := r.PathValue("filename")
+	if !validUploadFilename(filename) {
+		jsonError(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext != ".png" && ext != ".jpg" {
+		jsonError(w, "Only PNG and JPEG can be resized", http.StatusBadRequest)
+		return
+	}
+	maxDim, err := strconv.Atoi(r.FormValue("max_dim"))
+	if err != nil || maxDim < 64 || maxDim > 8192 {
+		jsonError(w, "max_dim must be between 64 and 8192", http.StatusBadRequest)
+		return
+	}
+
+	path := filepath.Join(s.cfg.Upload.Dir, filename)
+	f, err := os.Open(path)
+	if err != nil {
+		jsonError(w, "File not found", http.StatusNotFound)
+		return
+	}
+	src, _, err := image.Decode(f)
+	f.Close()
+	if err != nil {
+		jsonError(w, "Failed to decode image", http.StatusInternalServerError)
+		return
+	}
+
+	dst := scaleImage(src, maxDim)
+
+	tmpPath := path + ".tmp"
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		jsonError(w, "Failed to write file", http.StatusInternalServerError)
+		return
+	}
+	var encErr error
+	if ext == ".jpg" {
+		encErr = jpeg.Encode(out, dst, &jpeg.Options{Quality: 85})
+	} else {
+		encErr = png.Encode(out, dst)
+	}
+	out.Close()
+	if encErr != nil {
+		os.Remove(tmpPath)
+		jsonError(w, "Failed to encode image", http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		jsonError(w, "Failed to save resized image", http.StatusInternalServerError)
+		return
+	}
+
+	info, _ := os.Stat(path)
+	var newSize int64
+	if info != nil {
+		newSize = info.Size()
+	}
+	b := dst.Bounds()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"size_human": formatBytes(newSize),
+		"width":      b.Dx(),
+		"height":     b.Dy(),
+	})
+}
+
+// ---- Image upload handler ----
+
+var allowedMIME = map[string]string{
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+}
+
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	maxBytes := s.cfg.Upload.MaxSize * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	// Extend per-request deadlines for large uploads
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(120 * time.Second))
+	rc.SetWriteDeadline(time.Now().Add(120 * time.Second))
+
+	// Verify CSRF manually (must happen after MaxBytesReader is set)
+	if !verifyCSRF(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid CSRF token"})
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if err.Error() == "http: request body too large" {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("File too large (max %d MB)", s.cfg.Upload.MaxSize)})
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "No file provided"})
+		}
+		return
+	}
+	defer file.Close()
+
+	// Read first 512 bytes to detect MIME type
+	head := make([]byte, 512)
+	n, err := file.Read(head)
+	if err != nil && err != io.EOF {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to read file"})
+		return
+	}
+	head = head[:n]
+
+	mimeType := http.DetectContentType(head)
+	ext, ok := allowedMIME[mimeType]
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Only PNG, JPEG, GIF, and WebP images are allowed"})
+		return
+	}
+
+	// Generate random filename
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	filename := hex.EncodeToString(randBytes) + ext
+
+	// Write file to disk
+	destPath := filepath.Join(s.cfg.Upload.Dir, filename)
+	out, err := os.Create(destPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		return
+	}
+	defer out.Close()
+
+	// Write the head bytes we already read, then copy the rest
+	if _, err := out.Write(head); err != nil {
+		os.Remove(destPath)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		os.Remove(destPath)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		return
+	}
+
+	imgURL := "/uploads/" + filename
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":      imgURL,
+		"markdown": "![](" + imgURL + ")",
+	})
 }
 
 var validPasteNameRe = strings.NewReplacer() // placeholder — use inline check below
