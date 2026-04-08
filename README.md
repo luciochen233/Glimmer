@@ -32,6 +32,17 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [
 - **Formats:** Markdown (GitHub-Flavored, rendered server-side) and plain text
 - **Raw view:** Append `?raw=1` to any paste URL for `text/plain` output
 - **Copy button:** One-click clipboard copy in the paste viewer
+- **Image embedding:** Paste an image from clipboard or use the Upload Image button in the paste editor — image is uploaded and a markdown link is inserted at the cursor automatically
+
+### Image Uploads
+- **Admin-only upload:** Images up to 50 MB via file picker or clipboard paste in the paste editor
+- **Supported formats:** PNG, JPEG, GIF, WebP (validated by magic bytes, not file extension)
+- **Uploads management tab:** View all uploaded images with thumbnails, file size, and dimensions
+- **Resize:** Downscale PNG or JPEG images in-place by setting a max dimension — re-encodes JPEG at 85% quality; no additional dependencies
+- **Delete:** Remove individual images from the admin uploads tab
+- **Copy markdown:** One-click copy of the `![](/uploads/...)` link for use in any paste
+- **Public serving:** Uploaded images are served at `/uploads/{filename}` and render in public paste views
+- **Per-upload timeout:** Upload requests get a 120-second read/write deadline via `http.NewResponseController`; all other routes keep the 5s/10s defaults
 
 ### Security
 - CSRF protection on every state-changing POST (double-submit cookie pattern)
@@ -57,10 +68,11 @@ glimmer/
 │   ├── glimmer.service            # systemd unit file (Ubuntu 15.04+)
 │   └── glimmer.init               # SysV init script (Ubuntu 14.04 and older)
 ├── data/
-│   └── urls.db                     # SQLite database (auto-created on first run)
+│   ├── urls.db                     # SQLite database (auto-created on first run)
+│   └── uploads/                    # Uploaded images (auto-created on first run)
 └── internal/
     ├── config/
-    │   └── config.go               # TOML config loader; Config struct
+    │   └── config.go               # TOML config loader; Config struct (incl. UploadConfig)
     ├── db/
     │   └── db.go                   # SQLite open/migrate; Link & Paste CRUD
     ├── slug/
@@ -77,7 +89,8 @@ glimmer/
             ├── admin.html          # Admin dashboard: stats bar, tiles, links tables
             ├── admin_edit.html     # Edit a single link
             ├── admin_bin.html      # Pastes list with format/token badges
-            ├── admin_bin_edit.html # Create / edit a paste
+            ├── admin_bin_edit.html # Create / edit a paste (with image upload)
+            ├── admin_uploads.html  # Upload management: list, resize, delete
             ├── bin_view.html       # Public paste viewer (GitHub Gist style)
             └── 404.html            # Not found page
 ```
@@ -139,6 +152,10 @@ path = "./data/urls.db"
 
 [slugs]
 length = 3   # Auto-generated slug length (characters)
+
+[upload]
+dir         = "./data/uploads"   # Where uploaded images are stored (auto-created)
+max_size_mb = 50                 # Max image upload size in MB
 ```
 
 ### 3. Set your admin password
@@ -264,8 +281,8 @@ server {
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
 
-        proxy_read_timeout  30s;
-        proxy_send_timeout  30s;
+        proxy_read_timeout  120s;   # Allow time for large image uploads (up to 50 MB)
+        proxy_send_timeout  120s;
     }
 }
 ```
@@ -334,8 +351,8 @@ server {
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
 
-        proxy_read_timeout  30s;
-        proxy_send_timeout  30s;
+        proxy_read_timeout  120s;   # Allow time for large image uploads (up to 50 MB)
+        proxy_send_timeout  120s;
         proxy_buffering     off;
     }
 }
@@ -385,6 +402,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `GET` | `/{slug}` | Public | Redirect to destination |
 | `GET` | `/bin/{name}` | Public | View paste |
 | `GET` | `/bin/{name}/{token}` | Public | View token-protected paste |
+| `GET` | `/uploads/{filename}` | Public | Serve uploaded image |
 | `GET` | `/admin/login` | Public | Login form |
 | `POST` | `/admin/login` | Public | Submit login |
 | `POST` | `/admin/logout` | Admin | Logout (CSRF protected) |
@@ -399,6 +417,10 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `GET` | `/admin/bin/edit/{id}` | Admin | Edit paste form |
 | `POST` | `/admin/bin/edit/{id}` | Admin | Save paste edit (CSRF) |
 | `POST` | `/admin/bin/delete/{id}` | Admin | Delete paste (CSRF) |
+| `GET` | `/admin/uploads` | Admin | Uploads management list |
+| `POST` | `/admin/upload` | Admin | Upload an image (returns JSON) |
+| `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded image (CSRF) |
+| `POST` | `/admin/uploads/resize/{filename}` | Admin | Resize a PNG/JPEG in-place (returns JSON) |
 | `GET` | `/static/*` | Public | CSS / static assets |
 
 ---
@@ -444,8 +466,8 @@ rm -f data/urls.db
 [server]
 port          = 8888          # TCP port to listen on
 base_url      = "http://localhost:8888"  # Fallback base URL (overridden by Host header)
-read_timeout  = "5s"          # HTTP read timeout
-write_timeout = "10s"         # HTTP write timeout
+read_timeout  = "5s"          # HTTP read timeout (uploads extend their own deadline to 120s)
+write_timeout = "10s"         # HTTP write timeout (uploads extend their own deadline to 120s)
 
 [admin]
 username      = "admin"       # Admin login username
@@ -457,6 +479,10 @@ path = "./data/urls.db"       # Path to SQLite file (directory auto-created)
 
 [slugs]
 length = 3                    # Length of auto-generated slugs (recommended: 3–6)
+
+[upload]
+dir          = "./data/uploads"  # Directory for uploaded images (auto-created)
+max_size_mb  = 50                # Max upload size in MB
 ```
 
 ---
@@ -510,3 +536,6 @@ Get-NetTCPConnection -LocalPort 8888 | ForEach-Object { Stop-Process -Id $_.Owni
 - [ ] Optional expiry date per link
 - [ ] Bulk delete / bulk import via CSV
 - [ ] Syntax highlighting for code pastes
+- [ ] Animated GIF resize support
+- [ ] WebP encode support for resize (requires an external library)
+- [ ] Upload storage quota display in the uploads tab
