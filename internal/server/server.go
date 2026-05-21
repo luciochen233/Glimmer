@@ -68,8 +68,9 @@ func (s *Server) Start() error {
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
-	// Uploaded images (public — images appear in public pastes)
-	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.cfg.Upload.Dir))))
+	// Uploaded files (public — appear in public pastes). Non-image files are
+	// served as attachments to prevent same-origin XSS via HTML/SVG/JS uploads.
+	mux.HandleFunc("GET /uploads/", s.handleUploadsServe)
 
 	// Public routes
 	mux.HandleFunc("GET /{$}", s.handleIndex)
@@ -96,6 +97,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /admin/bin/delete/{id}", s.requireAuth(s.requireCSRF(s.handleAdminBinDelete)))
 	mux.HandleFunc("GET /admin/bin/qr/{name}", s.requireAuth(s.handleBinQR))
 	mux.HandleFunc("POST /admin/upload", s.requireAuth(s.handleUpload))
+	mux.HandleFunc("POST /admin/upload-file", s.requireAuth(s.handleFileUpload))
 	mux.HandleFunc("GET /admin/uploads", s.requireAuth(s.handleAdminUploads))
 	mux.HandleFunc("POST /admin/uploads/delete/{filename}", s.requireAuth(s.requireCSRF(s.handleAdminUploadDelete)))
 	mux.HandleFunc("POST /admin/uploads/resize/{filename}", s.requireAuth(s.handleAdminUploadResize))

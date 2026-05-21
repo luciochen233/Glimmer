@@ -80,8 +80,10 @@
 
 			<label>Content</label>
 			<div class="upload-controls">
-				<button type="button" id="upload-btn" class="outline secondary">Upload Image</button>
-				<input type="file" id="file-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+				<button type="button" id="upload-img-btn" class="outline secondary">Upload Image</button>
+				<button type="button" id="upload-file-btn" class="outline secondary">Upload File</button>
+				<input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+				<input type="file" id="file-input" style="display:none">
 				<small id="upload-status"></small>
 			</div>
 			{{if .Paste}}
@@ -148,7 +150,9 @@
 
 	(function() {
 		var textarea = document.querySelector('textarea[name="content"]');
-		var uploadBtn = document.getElementById('upload-btn');
+		var uploadImgBtn = document.getElementById('upload-img-btn');
+		var uploadFileBtn = document.getElementById('upload-file-btn');
+		var imgInput = document.getElementById('img-input');
 		var fileInput = document.getElementById('file-input');
 		var status = document.getElementById('upload-status');
 
@@ -157,26 +161,39 @@
 			return match ? match[1] : '';
 		}
 
-		function uploadFile(file) {
-			if (!file || !file.type.startsWith('image/')) {
-				status.textContent = 'Not an image file';
-				return;
-			}
-			if (file.size > 50 * 1024 * 1024) {
-				status.textContent = 'File too large (max 50 MB)';
-				return;
+		function setButtonsDisabled(v) {
+			uploadImgBtn.disabled = v;
+			uploadFileBtn.disabled = v;
+		}
+
+		function doUpload(file, isImage) {
+			if (isImage) {
+				if (!file || !file.type.startsWith('image/')) {
+					status.textContent = 'Not an image file';
+					return;
+				}
+				if (file.size > 50 * 1024 * 1024) {
+					status.textContent = 'File too large (max 50 MB)';
+					return;
+				}
+			} else {
+				if (file.size > 5 * 1024 * 1024) {
+					status.textContent = 'File too large (max 5 MB)';
+					return;
+				}
 			}
 
 			status.textContent = 'Uploading\u2026';
-			uploadBtn.disabled = true;
+			setButtonsDisabled(true);
 			var fd = new FormData();
 			fd.append('file', file);
 			fd.append('csrf_token', getCsrfToken());
+			var endpoint = isImage ? '/admin/upload' : '/admin/upload-file';
 
-			fetch('/admin/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
+			fetch(endpoint, { method: 'POST', body: fd, credentials: 'same-origin' })
 				.then(function(res) { return res.json(); })
 				.then(function(data) {
-					uploadBtn.disabled = false;
+					setButtonsDisabled(false);
 					if (data.error) {
 						status.textContent = 'Error: ' + data.error;
 						return;
@@ -186,7 +203,7 @@
 					setTimeout(function() { status.textContent = ''; }, 3000);
 				})
 				.catch(function() {
-					uploadBtn.disabled = false;
+					setButtonsDisabled(false);
 					status.textContent = 'Upload failed';
 				});
 		}
@@ -201,9 +218,15 @@
 			textarea.focus();
 		}
 
-		uploadBtn.addEventListener('click', function() { fileInput.click(); });
+		uploadImgBtn.addEventListener('click', function() { imgInput.click(); });
+		uploadFileBtn.addEventListener('click', function() { fileInput.click(); });
+
+		imgInput.addEventListener('change', function() {
+			if (imgInput.files.length > 0) doUpload(imgInput.files[0], true);
+			imgInput.value = '';
+		});
 		fileInput.addEventListener('change', function() {
-			if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+			if (fileInput.files.length > 0) doUpload(fileInput.files[0], false);
 			fileInput.value = '';
 		});
 
@@ -212,7 +235,7 @@
 			for (var i = 0; i < items.length; i++) {
 				if (items[i].type.indexOf('image') !== -1) {
 					e.preventDefault();
-					uploadFile(items[i].getAsFile());
+					doUpload(items[i].getAsFile(), true);
 					return;
 				}
 			}

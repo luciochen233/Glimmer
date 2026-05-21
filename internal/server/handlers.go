@@ -63,6 +63,7 @@ type UploadInfo struct {
 	Width     int
 	Height    int
 	CanResize bool
+	IsImage   bool
 	ModTime   time.Time
 }
 
@@ -687,10 +688,18 @@ func (s *Server) handleAdminBinDelete(w http.ResponseWriter, r *http.Request) {
 
 // ---- Upload helpers ----
 
-var validUploadRe = regexp.MustCompile(`^[0-9a-f]{32}\.(png|jpg|gif|webp)$`)
+var validUploadRe = regexp.MustCompile(`^[0-9a-f]{32}\.[a-z0-9]{1,10}$`)
 
 func validUploadFilename(name string) bool {
 	return validUploadRe.MatchString(name)
+}
+
+var imageExts = map[string]bool{
+	".png": true, ".jpg": true, ".gif": true, ".webp": true,
+}
+
+func isImageFile(name string) bool {
+	return imageExts[strings.ToLower(filepath.Ext(name))]
 }
 
 func formatBytes(n int64) string {
@@ -749,6 +758,24 @@ func scaleImage(src image.Image, maxDim int) image.Image {
 	return dst
 }
 
+// handleUploadsServe serves files from the upload directory. For non-image
+// files it forces Content-Disposition: attachment with an octet-stream type so
+// that arbitrary uploads (e.g. HTML, SVG, JS) cannot be rendered in-browser
+// from the same origin as the admin panel.
+func (s *Server) handleUploadsServe(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	if !validUploadFilename(name) {
+		http.NotFound(w, r)
+		return
+	}
+	path := filepath.Join(s.cfg.Upload.Dir, name)
+	if !isImageFile(name) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	}
+	http.ServeFile(w, r, path)
+}
+
 // ---- Upload management handlers ----
 
 func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
@@ -776,15 +803,18 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 			Size:      info.Size(),
 			SizeHuman: formatBytes(info.Size()),
 			URL:       "/uploads/" + name,
+			IsImage:   isImageFile(name),
 			ModTime:   info.ModTime(),
 		}
 		ext := strings.ToLower(filepath.Ext(name))
-		if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
-			if cfg, _, err := image.DecodeConfig(f); err == nil {
-				ui.Width = cfg.Width
-				ui.Height = cfg.Height
+		if ui.IsImage {
+			if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
+				if cfg, _, err := image.DecodeConfig(f); err == nil {
+					ui.Width = cfg.Width
+					ui.Height = cfg.Height
+				}
+				f.Close()
 			}
-			f.Close()
 		}
 		if ext == ".png" || ext == ".jpg" {
 			ui.CanResize = true
@@ -979,6 +1009,100 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		"url":      imgURL,
 		"markdown": "![](" + imgURL + ")",
 	})
+}
+
+// ---- File upload handler (any file, 5 MB max) ----
+
+var validExtRe = regexp.MustCompile(`^[a-z0-9]{1,10}$`)
+
+func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	const maxFileBytes = 5 * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes+4096)
+
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(120 * time.Second))
+	rc.SetWriteDeadline(time.Now().Add(120 * time.Second))
+
+	if !verifyCSRF(r) {
+		jsonError(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		if err.Error() == "http: request body too large" {
+			jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
+		} else {
+			jsonError(w, "No file provided", http.StatusBadRequest)
+		}
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
+	if ext == "" || !validExtRe.MatchString(ext) {
+		jsonError(w, "Invalid file extension", http.StatusBadRequest)
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	filename := hex.EncodeToString(randBytes) + "." + ext
+
+	destPath := filepath.Join(s.cfg.Upload.Dir, filename)
+	out, err := os.Create(destPath)
+	if err != nil {
+		jsonError(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+
+	written, err := io.Copy(out, file)
+	if err != nil {
+		os.Remove(destPath)
+		jsonError(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	if written > maxFileBytes {
+		os.Remove(destPath)
+		jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	fileURL := "/uploads/" + filename
+	displayName := sanitizeDisplayFilename(header.Filename)
+	if displayName == "" {
+		displayName = filename
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":      fileURL,
+		"filename": displayName,
+		"markdown": "[" + displayName + "](" + fileURL + ")",
+	})
+}
+
+// sanitizeDisplayFilename strips path components, control chars, and
+// markdown-significant characters from a user-supplied filename so that it
+// can be safely embedded in a markdown link.
+func sanitizeDisplayFilename(name string) string {
+	name = filepath.Base(name)
+	var b strings.Builder
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			continue
+		}
+		switch r {
+		case '[', ']', '(', ')', '\\', '`', '*', '<', '>', '"', '\'':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	s := strings.TrimSpace(b.String())
+	if len(s) > 100 {
+		s = s[:100]
+	}
+	return s
 }
 
 var validPasteNameRe = strings.NewReplacer() // placeholder — use inline check below
