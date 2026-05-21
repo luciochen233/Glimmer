@@ -38,8 +38,8 @@
 					<p>{{len .Uploads}} files</p>
 				</hgroup>
 				<div class="upload-controls">
-					<button type="button" id="upload-img-btn" class="btn-sm">Upload Image</button>
-					<button type="button" id="upload-file-btn" class="btn-sm outline">Upload File</button>
+					<button type="button" id="upload-img-btn" class="btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">Upload Image <small style="opacity:.7">(50 MB)</small></button>
+					<button type="button" id="upload-file-btn" class="btn-sm outline" title="Any file type — up to 5 MB">Upload File <small style="opacity:.7">(5 MB)</small></button>
 					<input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
 					<input type="file" id="file-input" style="display:none">
 					<small id="upload-status"></small>
@@ -65,13 +65,19 @@
 							{{else}}<a href="{{.URL}}" target="_blank" style="font-size:1.5rem" title="Download file">&#128196;</a>
 							{{end}}
 						</td>
-						<td><code style="font-size:0.75rem">{{.Filename}}</code></td>
+						<td>
+							<div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+								<span class="ext-chip">{{.Ext}}</span>
+								{{if .OriginalName}}<span style="font-size:0.85rem">{{.OriginalName}}</span>{{end}}
+							</div>
+							<code style="font-size:0.7rem;opacity:.6">{{.Filename}}</code>
+						</td>
 						<td id="size-{{.Filename}}">{{.SizeHuman}}</td>
 						<td id="dim-{{.Filename}}">{{if .Width}}{{.Width}}&times;{{.Height}}{{else}}&mdash;{{end}}</td>
 						<td>{{.ModTime.Format "2006-01-02 15:04"}}</td>
 						<td>
 							<div role="group">
-								<button type="button" class="outline btn-sm" onclick="copyMarkdown('{{.Filename}}', {{.IsImage}}, this)">Copy</button>
+								<button type="button" class="outline btn-sm" onclick="copyMarkdown('{{.Filename}}', {{.IsImage}}, {{.OriginalName}}, this)">Copy</button>
 								{{if .CanResize}}<button type="button" class="outline btn-sm" onclick="openResize('{{.Filename}}', {{.Width}}, {{.Height}})">Resize</button>{{end}}
 								<form method="post" action="/admin/uploads/delete/{{.Filename}}" onsubmit="return confirm('Delete this file?')" style="margin:0">
 									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
@@ -115,17 +121,14 @@
 		</article>
 	</dialog>
 
+<script src="/static/upload.js"></script>
 <script>
 	var currentResizeFile = '';
 
-	function getCsrfToken() {
-		var match = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
-		return match ? match[1] : '';
-	}
-
-	function copyMarkdown(filename, isImage, btn) {
+	function copyMarkdown(filename, isImage, originalName, btn) {
 		var url = '/uploads/' + filename;
-		var md = isImage ? '![](' + url + ')' : '[' + filename + '](' + url + ')';
+		var label = originalName || filename;
+		var md = isImage ? '![](' + url + ')' : '[' + label + '](' + url + ')';
 		navigator.clipboard.writeText(md).then(function() {
 			var orig = btn.textContent;
 			btn.textContent = 'Copied!';
@@ -135,7 +138,7 @@
 
 	function openResize(filename, w, h) {
 		currentResizeFile = filename;
-		document.getElementById('resize-current').textContent = 'Current: ' + w + '\u00d7' + h;
+		document.getElementById('resize-current').textContent = 'Current: ' + w + '×' + h;
 		document.getElementById('resize-status').textContent = '';
 		document.getElementById('resize-confirm').disabled = false;
 		document.getElementById('resize-dialog').showModal();
@@ -145,11 +148,11 @@
 		var dim = document.getElementById('resize-dim').value;
 		var status = document.getElementById('resize-status');
 		var btn = this;
-		status.textContent = 'Resizing\u2026';
+		status.textContent = 'Resizing…';
 		btn.disabled = true;
 
 		var fd = new FormData();
-		fd.append('csrf_token', getCsrfToken());
+		fd.append('csrf_token', window.GlimmerUpload.getCsrfToken());
 		fd.append('max_dim', dim);
 
 		fetch('/admin/uploads/resize/' + currentResizeFile, { method: 'POST', body: fd, credentials: 'same-origin' })
@@ -163,9 +166,8 @@
 				var sizeEl = document.getElementById('size-' + currentResizeFile);
 				var dimEl = document.getElementById('dim-' + currentResizeFile);
 				if (sizeEl) sizeEl.textContent = data.size_human;
-				if (dimEl) dimEl.textContent = data.width + '\u00d7' + data.height;
-				status.textContent = 'Done \u2014 ' + data.size_human;
-				// Bust the image cache
+				if (dimEl) dimEl.textContent = data.width + '×' + data.height;
+				status.textContent = 'Done — ' + data.size_human;
 				var imgs = document.querySelectorAll('img[src="/uploads/' + currentResizeFile + '"]');
 				imgs.forEach(function(img) { img.src = '/uploads/' + currentResizeFile + '?t=' + Date.now(); });
 			})
@@ -175,65 +177,14 @@
 			});
 	});
 
-	// Upload buttons
-	var uploadImgBtn = document.getElementById('upload-img-btn');
-	var uploadFileBtn = document.getElementById('upload-file-btn');
-	var imgInput = document.getElementById('img-input');
-	var fileInput = document.getElementById('file-input');
-	var uploadStatus = document.getElementById('upload-status');
-
-	uploadImgBtn.addEventListener('click', function() { imgInput.click(); });
-	uploadFileBtn.addEventListener('click', function() { fileInput.click(); });
-
-	imgInput.addEventListener('change', function() {
-		if (imgInput.files.length > 0) doUpload(imgInput.files[0], true);
-		imgInput.value = '';
+	window.GlimmerUpload.init({
+		imgBtn:    document.getElementById('upload-img-btn'),
+		fileBtn:   document.getElementById('upload-file-btn'),
+		imgInput:  document.getElementById('img-input'),
+		fileInput: document.getElementById('file-input'),
+		statusEl:  document.getElementById('upload-status'),
+		onUploaded: function() { location.reload(); }
 	});
-	fileInput.addEventListener('change', function() {
-		if (fileInput.files.length > 0) doUpload(fileInput.files[0], false);
-		fileInput.value = '';
-	});
-
-	function doUpload(file, isImage) {
-		if (isImage) {
-			if (!file || !file.type.startsWith('image/')) {
-				uploadStatus.textContent = 'Not an image file';
-				return;
-			}
-			if (file.size > 50 * 1024 * 1024) {
-				uploadStatus.textContent = 'File too large (max 50 MB)';
-				return;
-			}
-		} else {
-			if (file.size > 5 * 1024 * 1024) {
-				uploadStatus.textContent = 'File too large (max 5 MB)';
-				return;
-			}
-		}
-		uploadStatus.textContent = 'Uploading\u2026';
-		uploadImgBtn.disabled = true;
-		uploadFileBtn.disabled = true;
-		var fd = new FormData();
-		fd.append('file', file);
-		fd.append('csrf_token', getCsrfToken());
-		var endpoint = isImage ? '/admin/upload' : '/admin/upload-file';
-		fetch(endpoint, { method: 'POST', body: fd, credentials: 'same-origin' })
-			.then(function(r) { return r.json(); })
-			.then(function(data) {
-				uploadImgBtn.disabled = false;
-				uploadFileBtn.disabled = false;
-				if (data.error) {
-					uploadStatus.textContent = 'Error: ' + data.error;
-				} else {
-					location.reload();
-				}
-			})
-			.catch(function() {
-				uploadImgBtn.disabled = false;
-				uploadFileBtn.disabled = false;
-				uploadStatus.textContent = 'Upload failed';
-			});
-	}
 </script>
 </body>
 </html>

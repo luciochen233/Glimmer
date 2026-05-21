@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Glimmer** is a single-binary Go URL shortener + pastebin with image upload support. It runs on a Raspberry Pi Zero (512 MB RAM, ARMv5) and compiles to a fully self-contained binary — no CGo, no external runtime, no system SQLite.
+**Glimmer** is a single-binary Go URL shortener + pastebin with image and file upload support. It runs on a Raspberry Pi Zero (512 MB RAM, ARMv5) and compiles to a fully self-contained binary — no CGo, no external runtime, no system SQLite.
 
 Live at [luci.ooo](https://luci.ooo).
 
@@ -33,25 +33,27 @@ glimmer/
 ├── Makefile
 ├── data/
 │   ├── urls.db                      # SQLite DB (auto-created)
-│   └── uploads/                     # Uploaded images (auto-created)
+│   └── uploads/                     # Uploaded images & files (auto-created)
 └── internal/
     ├── config/config.go             # TOML config structs + loader
-    ├── db/db.go                     # DB open/migrate; Link + Paste CRUD
+    ├── db/db.go                     # DB open/migrate; Link + Paste + Upload CRUD
     ├── slug/slug.go                 # Base-36 slug generation + validation
     └── server/
         ├── server.go                # Mux, middleware wiring, server start
         ├── handlers.go              # All HTTP handlers + rendering helpers
         ├── middleware.go            # Auth, CSRF, sessions, rate limiter
         ├── templates.go             # embed.FS for templates + static; initTemplates()
-        ├── static/style.css         # Custom styles on top of Pico CSS 2
+        ├── static/
+        │   ├── style.css            # Custom styles on top of Pico CSS 2
+        │   └── upload.js            # Shared client-side upload helper (window.GlimmerUpload)
         └── templates/
             ├── index.html           # Public: URL shortener form
             ├── admin_login.html     # Login (dark, centered)
             ├── admin.html           # Dashboard: stats, tiles, links tables
             ├── admin_edit.html      # Edit a single link
             ├── admin_bin.html       # Pastes list
-            ├── admin_bin_edit.html  # Create / edit paste (with image upload JS)
-            ├── admin_uploads.html   # Image upload management
+            ├── admin_bin_edit.html  # Create / edit paste (uses /static/upload.js)
+            ├── admin_uploads.html   # Image + file upload management
             ├── bin_view.html        # Public paste viewer
             ├── bin_token.html       # Token prompt for protected pastes
             └── 404.html
@@ -84,7 +86,7 @@ All templates receive a `pageData` struct. Add new fields there when templates n
 Templates and static files are embedded into the binary via `//go:embed` in `templates.go`. Changes to templates are compiled in; they are **not** reloaded at runtime. Always rebuild after template changes.
 
 ### No JS frameworks
-All JavaScript is vanilla ES5-style (`var`, not `const`/`let`) written inline in templates. No build step, no npm, no bundler.
+All JavaScript is vanilla ES5-style (`var`, not `const`/`let`). Most JS is inline in templates; shared upload logic lives in `static/upload.js` and is exposed as `window.GlimmerUpload`. No build step, no npm, no bundler.
 
 ### CSS framework
 [Pico CSS 2](https://picocss.com/) loaded from CDN. Custom overrides in `static/style.css`. Admin pages use `data-theme="dark"`.
@@ -104,10 +106,20 @@ All JavaScript is vanilla ES5-style (`var`, not `const`/`let`) written inline in
 All state-changing POSTs must include `<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">` in the form. Handlers must be wrapped with `requireCSRF`. For multipart form handlers (file uploads), verify CSRF manually inside the handler *after* calling `r.ParseMultipartForm` — do not use the `requireCSRF` wrapper as it will parse with Go's default 32 MB limit before `MaxBytesReader` takes effect.
 
 ### File uploads
+Two endpoints, both admin-only and CSRF-protected:
+- `POST /admin/upload` — images only (PNG/JPEG/GIF/WebP), up to `upload.max_size_mb` from config (default 50 MB). MIME type validated by magic bytes via `http.DetectContentType`.
+- `POST /admin/upload-file` — any file type, hard-coded 5 MB cap. Validates only that the extension is `[a-z0-9]{1,10}`.
+
+Shared upload rules:
 - Max size enforced via `http.MaxBytesReader(w, r.Body, maxBytes)` at handler start
-- MIME type validated via `http.DetectContentType` (magic bytes), not the client-supplied `Content-Type`
-- Filenames are always `[32 hex chars].[ext]` — validated by `validUploadRe` regexp before any file operation
+- Filenames written to disk are always `[32 hex chars].[ext]` — validated by `validUploadRe` regexp before any file operation. Original filenames are stored in the `uploads` table (filename → original_name) and used for `Content-Disposition` and the admin listing.
 - Per-request timeouts extended to 120s via `http.NewResponseController` — global timeouts stay at 5s/10s
+- `sanitizeDisplayFilename()` strips control chars and markdown-significant chars (`[ ] ( ) \ \` * < > " '`) before the original name is embedded in JSON responses or stored.
+
+### Serving uploads (`/uploads/{filename}`)
+`handleUploadsServe` validates the filename against `validUploadRe`, then:
+- **Images** (`.png`/`.jpg`/`.gif`/`.webp`) — served inline by `http.ServeFile` so they can embed in public pastes.
+- **Everything else** — forced to download with `Content-Type: application/octet-stream` + `Content-Disposition: attachment` (with both ASCII `filename=` and RFC 5987 `filename*=UTF-8''…`). This prevents same-origin XSS from uploaded HTML/SVG/JS being rendered by the browser.
 
 ### Image resize
 Only PNG (`.png`) and JPEG (`.jpg`) are resizable. Resize uses a nearest-neighbour scale implemented in stdlib (`image`, `image/color`, `image/jpeg`, `image/png`) — no external image library. GIF and WebP are served and deletable but not resizable.

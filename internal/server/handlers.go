@@ -56,15 +56,17 @@ type pageData struct {
 }
 
 type UploadInfo struct {
-	Filename  string
-	SizeHuman string
-	Size      int64
-	URL       string
-	Width     int
-	Height    int
-	CanResize bool
-	IsImage   bool
-	ModTime   time.Time
+	Filename     string
+	OriginalName string
+	SizeHuman    string
+	Size         int64
+	URL          string
+	Ext          string
+	Width        int
+	Height       int
+	CanResize    bool
+	IsImage      bool
+	ModTime      time.Time
 }
 
 var mdRenderer = goldmark.New(
@@ -770,10 +772,36 @@ func (s *Server) handleUploadsServe(w http.ResponseWriter, r *http.Request) {
 	}
 	path := filepath.Join(s.cfg.Upload.Dir, name)
 	if !isImageFile(name) {
+		download := name
+		if orig, _ := s.db.GetUploadName(name); orig != "" {
+			download = orig
+		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		w.Header().Set("Content-Disposition", contentDispositionAttachment(download))
 	}
 	http.ServeFile(w, r, path)
+}
+
+// contentDispositionAttachment builds a safe attachment header. The ASCII
+// filename strips characters that would break header parsing; the RFC 5987
+// filename* preserves any UTF-8 chars for clients that understand it.
+func contentDispositionAttachment(name string) string {
+	var ascii strings.Builder
+	for _, r := range name {
+		if r < 32 || r == 127 || r == '"' || r == '\\' {
+			continue
+		}
+		if r > 127 {
+			ascii.WriteByte('_')
+			continue
+		}
+		ascii.WriteRune(r)
+	}
+	a := ascii.String()
+	if a == "" {
+		a = "download"
+	}
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, a, url.PathEscape(name))
 }
 
 // ---- Upload management handlers ----
@@ -784,6 +812,8 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read uploads", http.StatusInternalServerError)
 		return
 	}
+
+	names, _ := s.db.ListUploadNames()
 
 	var uploads []UploadInfo
 	for _, entry := range entries {
@@ -798,15 +828,17 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		ui := UploadInfo{
-			Filename:  name,
-			Size:      info.Size(),
-			SizeHuman: formatBytes(info.Size()),
-			URL:       "/uploads/" + name,
-			IsImage:   isImageFile(name),
-			ModTime:   info.ModTime(),
-		}
 		ext := strings.ToLower(filepath.Ext(name))
+		ui := UploadInfo{
+			Filename:     name,
+			OriginalName: names[name],
+			Size:         info.Size(),
+			SizeHuman:    formatBytes(info.Size()),
+			URL:          "/uploads/" + name,
+			Ext:          strings.TrimPrefix(ext, "."),
+			IsImage:      isImageFile(name),
+			ModTime:      info.ModTime(),
+		}
 		if ui.IsImage {
 			if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
 				if cfg, _, err := image.DecodeConfig(f); err == nil {
@@ -838,6 +870,7 @@ func (s *Server) handleAdminUploadDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	os.Remove(filepath.Join(s.cfg.Upload.Dir, filename))
+	s.db.DeleteUpload(filename)
 	http.Redirect(w, r, "/admin/uploads", http.StatusSeeOther)
 }
 
@@ -937,7 +970,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("file")
+	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		if err.Error() == "http: request body too large" {
@@ -1003,10 +1036,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	displayName := sanitizeDisplayFilename(header.Filename)
+	s.db.RecordUpload(filename, displayName)
+
 	imgURL := "/uploads/" + filename
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"url":      imgURL,
+		"filename": displayName,
 		"markdown": "![](" + imgURL + ")",
 	})
 }
@@ -1074,6 +1111,8 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	if displayName == "" {
 		displayName = filename
 	}
+	s.db.RecordUpload(filename, displayName)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"url":      fileURL,

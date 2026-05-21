@@ -402,3 +402,18 @@ mark.badge-hidden {
 	color: var(--pico-muted-color);
 	font-size: 0.8rem;
 }
+
+.ext-chip {
+	display: inline-block;
+	font-family: var(--pico-font-family-monospace);
+	font-size: 0.7rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	padding: 0.1rem 0.4rem;
+	border-radius: 4px;
+	background: var(--pico-primary-background);
+	color: var(--pico-primary-inverse);
+	min-width: 2.5rem;
+	text-align: center;
+}

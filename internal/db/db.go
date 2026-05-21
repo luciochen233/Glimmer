@@ -31,6 +31,12 @@ type Link struct {
 	CreatedAt time.Time
 }
 
+type Upload struct {
+	Filename     string
+	OriginalName string
+	CreatedAt    time.Time
+}
+
 type DB struct {
 	conn *sql.DB
 }
@@ -75,6 +81,11 @@ func migrate(conn *sql.DB) error {
 			token      TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS uploads (
+			filename      TEXT PRIMARY KEY,
+			original_name TEXT NOT NULL DEFAULT '',
+			created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 	`)
 	if err != nil {
@@ -275,6 +286,47 @@ func scanPaste(row *sql.Row) (*Paste, error) {
 	p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
 	p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updated)
 	return &p, nil
+}
+
+// ---- Upload metadata ----
+
+func (d *DB) RecordUpload(filename, originalName string) error {
+	_, err := d.conn.Exec(
+		"INSERT OR REPLACE INTO uploads (filename, original_name) VALUES (?, ?)",
+		filename, originalName,
+	)
+	return err
+}
+
+func (d *DB) GetUploadName(filename string) (string, error) {
+	var name string
+	err := d.conn.QueryRow("SELECT original_name FROM uploads WHERE filename = ?", filename).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return name, err
+}
+
+func (d *DB) ListUploadNames() (map[string]string, error) {
+	rows, err := d.conn.Query("SELECT filename, original_name FROM uploads")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := make(map[string]string)
+	for rows.Next() {
+		var f, n string
+		if err := rows.Scan(&f, &n); err != nil {
+			return nil, err
+		}
+		names[f] = n
+	}
+	return names, rows.Err()
+}
+
+func (d *DB) DeleteUpload(filename string) error {
+	_, err := d.conn.Exec("DELETE FROM uploads WHERE filename = ?", filename)
+	return err
 }
 
 func scanLink(row *sql.Row) (*Link, error) {

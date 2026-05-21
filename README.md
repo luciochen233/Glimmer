@@ -33,16 +33,19 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [
 - **Raw view:** Append `?raw=1` to any paste URL for `text/plain` output
 - **Copy button:** One-click clipboard copy in the paste viewer
 - **Image embedding:** Paste an image from clipboard or use the Upload Image button in the paste editor — image is uploaded and a markdown link is inserted at the cursor automatically
+- **File attachments:** Use the Upload File button to attach any file type (up to 5 MB); a markdown download link is inserted at the cursor
 
-### Image Uploads
-- **Admin-only upload:** Images up to 50 MB via file picker or clipboard paste in the paste editor
-- **Supported formats:** PNG, JPEG, GIF, WebP (validated by magic bytes, not file extension)
-- **Uploads management tab:** View all uploaded images with thumbnails, file size, and dimensions
-- **Resize:** Downscale PNG or JPEG images in-place by setting a max dimension — re-encodes JPEG at 85% quality; no additional dependencies
-- **Delete:** Remove individual images from the admin uploads tab
-- **Copy markdown:** One-click copy of the `![](/uploads/...)` link for use in any paste
-- **Public serving:** Uploaded images are served at `/uploads/{filename}` and render in public paste views
-- **Per-upload timeout:** Upload requests get a 120-second read/write deadline via `http.NewResponseController`; all other routes keep the 5s/10s defaults
+### Image & File Uploads
+- **Two upload modes:**
+  - **Images** — PNG, JPEG, GIF, WebP up to 50 MB (configurable). Validated by magic bytes, not file extension.
+  - **Files** — any file type up to 5 MB (hard-coded). Validated by extension regex only.
+- **Original filenames preserved:** Stored on disk as `[32 hex chars].[ext]` but the user's original filename is recorded in a SQLite `uploads` table and used in the admin listing and the `Content-Disposition` header when the file is downloaded.
+- **Uploads management tab:** View all uploaded files with thumbnails (images) or document icons (files), extension chip, original name, file size, and image dimensions.
+- **Resize:** Downscale PNG or JPEG images in-place by setting a max dimension — re-encodes JPEG at 85% quality; no additional dependencies.
+- **Delete:** Remove individual uploads from the admin uploads tab.
+- **Copy markdown:** One-click copy of the `![](/uploads/...)` (images) or `[name](/uploads/...)` (files) link for use in any paste.
+- **Public serving:** Uploaded images are served inline at `/uploads/{filename}` and render in public paste views. **Non-image files are forced to download** with `Content-Disposition: attachment` to prevent same-origin XSS via uploaded HTML/SVG/JS.
+- **Per-upload timeout:** Upload requests get a 120-second read/write deadline via `http.NewResponseController`; all other routes keep the 5s/10s defaults.
 
 ### Security
 - CSRF protection on every state-changing POST (double-submit cookie pattern)
@@ -69,12 +72,12 @@ glimmer/
 │   └── glimmer.init               # SysV init script (Ubuntu 14.04 and older)
 ├── data/
 │   ├── urls.db                     # SQLite database (auto-created on first run)
-│   └── uploads/                    # Uploaded images (auto-created on first run)
+│   └── uploads/                    # Uploaded images & files (auto-created on first run)
 └── internal/
     ├── config/
     │   └── config.go               # TOML config loader; Config struct (incl. UploadConfig)
     ├── db/
-    │   └── db.go                   # SQLite open/migrate; Link & Paste CRUD
+    │   └── db.go                   # SQLite open/migrate; Link & Paste & Upload CRUD
     ├── slug/
     │   └── slug.go                 # Base-36 slug generation and validation
     └── server/
@@ -82,14 +85,15 @@ glimmer/
         ├── handlers.go             # All request handlers; template rendering helpers
         ├── middleware.go           # requireAuth, requireCSRF, rateLimiter, sessionStore, clientIP
         ├── static/
-        │   └── style.css           # Custom styles on top of Pico CSS (no JS)
+        │   ├── style.css           # Custom styles on top of Pico CSS
+        │   └── upload.js           # Shared client-side upload helper (window.GlimmerUpload)
         └── templates/
             ├── index.html          # Public home: shorten form + QR result
             ├── admin_login.html    # Login form (dark, centered card)
             ├── admin.html          # Admin dashboard: stats bar, tiles, links tables
             ├── admin_edit.html     # Edit a single link
             ├── admin_bin.html      # Pastes list with format/token badges
-            ├── admin_bin_edit.html # Create / edit a paste (with image upload)
+            ├── admin_bin_edit.html # Create / edit a paste (with image + file upload)
             ├── admin_uploads.html  # Upload management: list, resize, delete
             ├── bin_view.html       # Public paste viewer (GitHub Gist style)
             └── 404.html            # Not found page
@@ -154,8 +158,8 @@ path = "./data/urls.db"
 length = 3   # Auto-generated slug length (characters)
 
 [upload]
-dir         = "./data/uploads"   # Where uploaded images are stored (auto-created)
-max_size_mb = 50                 # Max image upload size in MB
+dir         = "./data/uploads"   # Where uploaded images & files are stored (auto-created)
+max_size_mb = 50                 # Max image upload size in MB (file uploads are hard-capped at 5 MB)
 ```
 
 ### 3. Set your admin password
@@ -402,7 +406,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `GET` | `/{slug}` | Public | Redirect to destination |
 | `GET` | `/bin/{name}` | Public | View paste |
 | `GET` | `/bin/{name}/{token}` | Public | View token-protected paste |
-| `GET` | `/uploads/{filename}` | Public | Serve uploaded image |
+| `GET` | `/uploads/{filename}` | Public | Serve uploaded image inline; non-images forced as `attachment` |
 | `GET` | `/admin/login` | Public | Login form |
 | `POST` | `/admin/login` | Public | Submit login |
 | `POST` | `/admin/logout` | Admin | Logout (CSRF protected) |
@@ -418,8 +422,9 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `POST` | `/admin/bin/edit/{id}` | Admin | Save paste edit (CSRF) |
 | `POST` | `/admin/bin/delete/{id}` | Admin | Delete paste (CSRF) |
 | `GET` | `/admin/uploads` | Admin | Uploads management list |
-| `POST` | `/admin/upload` | Admin | Upload an image (returns JSON) |
-| `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded image (CSRF) |
+| `POST` | `/admin/upload` | Admin | Upload an image — PNG/JPEG/GIF/WebP, up to 50 MB (returns JSON) |
+| `POST` | `/admin/upload-file` | Admin | Upload any file — up to 5 MB (returns JSON) |
+| `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded file (CSRF) |
 | `POST` | `/admin/uploads/resize/{filename}` | Admin | Resize a PNG/JPEG in-place (returns JSON) |
 | `GET` | `/static/*` | Public | CSS / static assets |
 
@@ -446,8 +451,15 @@ CREATE TABLE pastes (
     content    TEXT NOT NULL DEFAULT '',
     format     TEXT NOT NULL DEFAULT 'markdown',  -- 'markdown' | 'text'
     token      TEXT,                   -- NULL = public; non-null = token required
+    hidden     INTEGER NOT NULL DEFAULT 0,        -- 1 = return 404 instead of token prompt
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE uploads (
+    filename      TEXT PRIMARY KEY,    -- on-disk name, e.g. "abc123…def.pdf"
+    original_name TEXT NOT NULL DEFAULT '',  -- sanitised original from the upload form
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
@@ -481,8 +493,8 @@ path = "./data/urls.db"       # Path to SQLite file (directory auto-created)
 length = 3                    # Length of auto-generated slugs (recommended: 3–6)
 
 [upload]
-dir          = "./data/uploads"  # Directory for uploaded images (auto-created)
-max_size_mb  = 50                # Max upload size in MB
+dir          = "./data/uploads"  # Directory for uploaded images & files (auto-created)
+max_size_mb  = 50                # Max image upload size in MB; file uploads are hard-capped at 5 MB
 ```
 
 ---
