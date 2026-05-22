@@ -151,6 +151,10 @@ username      = "admin"
 password_hash = "$2a$10$..."           # See step 3 below
 session_hours = 24
 
+[mcp]
+enabled = false                         # Enable POST /mcp
+api_key = "replace-with-a-long-random-token"
+
 [database]
 path = "./data/urls.db"
 
@@ -171,6 +175,18 @@ make hash
 ```
 
 Copy the printed bcrypt hash into `config.toml` under `admin.password_hash`.
+
+### MCP Access
+
+Glimmer can expose a Model Context Protocol endpoint at `POST /mcp`. Enable it in `config.toml`:
+
+```toml
+[mcp]
+enabled = true
+api_key = "replace-with-a-long-random-token"
+```
+
+MCP clients can authenticate with `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`. Basic auth using the configured admin username and password is also accepted. The endpoint exposes tools for listing, creating, updating, and deleting links and pastes, plus listing and deleting upload metadata/files.
 
 ### 4. Build and run
 
@@ -426,6 +442,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `POST` | `/admin/upload-file` | Admin | Upload any file — up to 5 MB (returns JSON) |
 | `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded file (CSRF) |
 | `POST` | `/admin/uploads/resize/{filename}` | Admin | Resize a PNG/JPEG in-place (returns JSON) |
+| `POST` | `/mcp` | MCP auth | JSON-RPC MCP endpoint, when `[mcp].enabled = true` |
 | `GET` | `/static/*` | Public | CSS / static assets |
 
 ---
@@ -485,6 +502,10 @@ write_timeout = "10s"         # HTTP write timeout (uploads extend their own dea
 username      = "admin"       # Admin login username
 password_hash = "$2a$10$..."  # bcrypt hash — generate with: ./glimmer --hash-password
 session_hours = 24            # How long admin sessions last
+
+[mcp]
+enabled = false                # Enable the MCP endpoint at POST /mcp
+api_key = ""                   # Recommended: a long random bearer token for MCP clients
 
 [database]
 path = "./data/urls.db"       # Path to SQLite file (directory auto-created)

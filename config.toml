@@ -13,6 +13,10 @@ username = "admin"
 password_hash = "$2a$10$WXBoF7ZB7fIRl5smdGH9seqlNbXWiCS7ZbGNk0ONb9xjS8499gBpu"
 session_hours = 24
 
+[mcp]
+enabled = false
+api_key = ""
+
 [database]
 path = "./data/urls.db"
 

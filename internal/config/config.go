@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `toml:"server"`
 	Admin    AdminConfig    `toml:"admin"`
+	MCP      MCPConfig      `toml:"mcp"`
 	Database DatabaseConfig `toml:"database"`
 	Slugs    SlugConfig     `toml:"slugs"`
 	Upload   UploadConfig   `toml:"upload"`
@@ -27,6 +28,11 @@ type AdminConfig struct {
 	Username     string `toml:"username"`
 	PasswordHash string `toml:"password_hash"`
 	SessionHours int    `toml:"session_hours"`
+}
+
+type MCPConfig struct {
+	Enabled bool   `toml:"enabled"`
+	APIKey  string `toml:"api_key"`
 }
 
 type DatabaseConfig struct {

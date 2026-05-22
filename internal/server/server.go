@@ -102,6 +102,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /admin/uploads/delete/{filename}", s.requireAuth(s.requireCSRF(s.handleAdminUploadDelete)))
 	mux.HandleFunc("POST /admin/uploads/resize/{filename}", s.requireAuth(s.handleAdminUploadResize))
 
+	if s.cfg.MCP.Enabled {
+		mux.HandleFunc("POST /mcp", s.handleMCP)
+	}
+
 	// Pastebin public routes (before catch-all)
 	mux.HandleFunc("GET /bin/{name}", s.handleBinView)
 	mux.HandleFunc("GET /bin/{name}/{token}", s.handleBinView)
