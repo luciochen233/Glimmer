@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Admin — Glimmer</title>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+	<link rel="stylesheet" href="/static/pico.min.css">
 	<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -49,8 +49,7 @@
 			</header>
 			<div class="tile-grid">
 				{{range .TopLinks}}
-				<a href="/{{.Slug}}" class="tile" target="_blank" title="{{.URL}}">
-					<img class="tile-favicon" src="https://www.google.com/s2/favicons?sz=32&domain_url={{.URL}}" loading="lazy" alt="" onerror="this.style.display='none'">
+				<a href="/{{.Slug}}" class="tile" target="_blank" rel="noopener noreferrer" title="{{.URL}}">
 					<span class="tile-slug">/{{.Slug}}</span>
 					<span class="tile-dest">{{.URL}}</span>
 					<span class="tile-clicks">{{.Clicks}} clicks</span>

@@ -31,7 +31,6 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
-	"golang.org/x/crypto/bcrypt"
 	"rsc.io/qr"
 )
 
@@ -135,7 +134,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	if !s.isLoggedIn(r) {
-		ip := clientIP(r)
+		ip := clientIP(r, s.cfg.Server.TrustProxy)
 		if !s.limiter.Allow(ip) {
 			s.renderIndex(w, r, "Too many requests. Please wait a moment.", "", "")
 			return
@@ -280,15 +279,29 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	username := r.FormValue("username")
-	password := r.FormValue("password")
-
-	if username != s.cfg.Admin.Username {
-		renderTemplate(w, "admin_login.html", pageData{Error: "Invalid credentials", CSRFToken: csrfToken(w, r)})
+	// Throttle login attempts per IP to slow brute force.
+	if !s.authLimiter.Allow(clientIP(r, s.cfg.Server.TrustProxy)) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		renderTemplate(w, "admin_login.html", pageData{Error: "Too many attempts. Please wait a moment.", CSRFToken: csrfToken(w, r)})
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(s.cfg.Admin.PasswordHash), []byte(password)); err != nil {
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	// Always run bcrypt (even when the username is wrong) so response timing
+	// does not reveal whether the username is valid. The username is compared
+	// in constant time. bcrypt runs through the concurrency gate.
+	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.Admin.Username)) == 1
+	pwOK, available := s.checkPassword(s.cfg.Admin.PasswordHash, password)
+	if !available {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		renderTemplate(w, "admin_login.html", pageData{Error: "Server busy. Please try again.", CSRFToken: csrfToken(w, r)})
+		return
+	}
+	if !userOK || !pwOK {
+		w.WriteHeader(http.StatusUnauthorized)
 		renderTemplate(w, "admin_login.html", pageData{Error: "Invalid credentials", CSRFToken: csrfToken(w, r)})
 		return
 	}

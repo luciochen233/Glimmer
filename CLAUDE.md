@@ -89,7 +89,7 @@ Templates and static files are embedded into the binary via `//go:embed` in `tem
 All JavaScript is vanilla ES5-style (`var`, not `const`/`let`). Most JS is inline in templates; shared upload logic lives in `static/upload.js` and is exposed as `window.GlimmerUpload`. No build step, no npm, no bundler.
 
 ### CSS framework
-[Pico CSS 2](https://picocss.com/) loaded from CDN. Custom overrides in `static/style.css`. Admin pages use `data-theme="dark"`.
+[Pico CSS 2](https://picocss.com/) is **vendored locally** at `static/pico.min.css` (served from `/static/pico.min.css`) so the app works fully offline with no external requests. Custom overrides in `static/style.css`. Admin pages use `data-theme="dark"`. Do not reintroduce CDN `<link>`/`<script>`/image references — everything must be same-origin (enforced by the `Content-Security-Policy` header in `securityHeaders`).
 
 ---
 
@@ -149,15 +149,16 @@ Redirects uppercase paths to lowercase (for QR-code URL compatibility). **Exclud
 
 ```toml
 [server]
-port          = 8888
-base_url      = "http://localhost:8888"
-read_timeout  = "5s"
-write_timeout = "10s"
+port           = 8888
+base_url       = "http://localhost:8888"
+read_timeout   = "5s"
+write_timeout  = "10s"
+trust_proxy    = false          # only honour X-Forwarded-For behind a trusted proxy
+max_concurrent = 64             # in-flight request cap (503 beyond it); lower on RPi Zero
 
 [admin]
 username      = "admin"
-password_hash = "$2a$10$..."   # bcrypt; generate with: ./glimmer --hash-password
-session_hours = 24
+password_hash = "$2a$10$..."   # REQUIRED — server refuses to start if empty; generate with: ./glimmer --hash-password
 
 [database]
 path = "./data/urls.db"

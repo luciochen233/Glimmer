@@ -22,6 +22,14 @@ type ServerConfig struct {
 	BaseURL      string `toml:"base_url"`
 	ReadTimeout  string `toml:"read_timeout"`
 	WriteTimeout string `toml:"write_timeout"`
+	// TrustProxy controls whether X-Forwarded-For / X-Real-Ip headers are
+	// honoured for client IP detection. Only enable when the server sits
+	// behind a trusted reverse proxy that sets these headers; otherwise a
+	// client can spoof them to bypass rate limiting.
+	TrustProxy bool `toml:"trust_proxy"`
+	// MaxConcurrent caps the number of in-flight requests. Excess requests
+	// get 503 instead of piling up and exhausting RAM/CPU on small hardware.
+	MaxConcurrent int `toml:"max_concurrent"`
 }
 
 type AdminConfig struct {
@@ -67,10 +75,12 @@ func (c *ServerConfig) WriteTimeoutDuration() time.Duration {
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Port:         8080,
-			BaseURL:      "http://localhost:8080",
-			ReadTimeout:  "5s",
-			WriteTimeout: "10s",
+			Port:          8080,
+			BaseURL:       "http://localhost:8080",
+			ReadTimeout:   "5s",
+			WriteTimeout:  "10s",
+			TrustProxy:    false,
+			MaxConcurrent: 64,
 		},
 		Admin: AdminConfig{
 			Username:     "admin",
@@ -98,7 +108,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	if cfg.Admin.PasswordHash == "" {
-		return nil, fmt.Errorf("admin.password_hash is required in config")
+		return nil, fmt.Errorf("admin.password_hash is required in config (generate one with: glimmer --hash-password \"your-password\")")
+	}
+
+	if cfg.Server.MaxConcurrent <= 0 {
+		cfg.Server.MaxConcurrent = 64
 	}
 
 	return cfg, nil

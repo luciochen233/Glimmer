@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,19 +15,29 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	db       *db.DB
-	sessions *sessionStore
-	limiter  *rateLimiter
+	cfg         *config.Config
+	db          *db.DB
+	sessions    *sessionStore
+	limiter     *rateLimiter
+	authLimiter *rateLimiter
+	bcryptSem   chan struct{}
 }
 
 func New(cfg *config.Config, database *db.DB) *Server {
 	ttl := time.Duration(cfg.Admin.SessionHours) * time.Hour
+	// Allow at most NumCPU concurrent bcrypt operations so password checks
+	// cannot peg the CPU on small hardware. Always at least 1.
+	bcryptWorkers := runtime.NumCPU()
+	if bcryptWorkers < 1 {
+		bcryptWorkers = 1
+	}
 	return &Server{
-		cfg:      cfg,
-		db:       database,
-		sessions: newSessionStore(ttl),
-		limiter:  newRateLimiter(1 * time.Second),
+		cfg:         cfg,
+		db:          database,
+		sessions:    newSessionStore(ttl),
+		limiter:     newRateLimiter(1 * time.Second),
+		authLimiter: newRateLimiter(1 * time.Second),
+		bcryptSem:   make(chan struct{}, bcryptWorkers),
 	}
 }
 
@@ -35,6 +46,20 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// All assets are served from the same origin (Pico CSS is vendored
+		// locally), so the app works fully offline and we can lock the origin
+		// down. img-src allows data: and https: so uploaded/remote images and
+		// favicons still render. 'unsafe-inline' is required by the inline
+		// scripts/styles in the templates; object-src/base-uri/frame-ancestors
+		// are pinned to blunt injection and clickjacking.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"img-src 'self' data: https:; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"object-src 'none'; "+
+				"base-uri 'none'; "+
+				"frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -78,7 +103,7 @@ func (s *Server) Start() error {
 
 	// Admin auth
 	mux.HandleFunc("GET /admin/login", s.handleLoginPage)
-	mux.HandleFunc("POST /admin/login", s.handleLogin)
+	mux.HandleFunc("POST /admin/login", s.requireCSRF(s.handleLogin))
 	mux.HandleFunc("POST /admin/logout", s.requireAuth(s.requireCSRF(s.handleLogout)))
 
 	// Admin routes (protected)
@@ -114,14 +139,27 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /{slug}", s.handleRedirect)
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
+
+	// Middleware chain (outermost first):
+	//   limitConcurrency — cap in-flight requests (memory/CPU guard)
+	//   limitBody        — cap body size for non-upload POSTs
+	//   lowercasePath    — normalise case for QR URLs
+	//   securityHeaders  — CSP + hardening headers
+	const maxBodyBytes = 1 << 20 // 1 MB for ordinary requests
+	handler := limitConcurrency(s.cfg.Server.MaxConcurrent,
+		limitBody(maxBodyBytes,
+			lowercasePath(securityHeaders(mux))))
+
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  s.cfg.Server.ReadTimeoutDuration(),
-		WriteTimeout: s.cfg.Server.WriteTimeoutDuration(),
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       s.cfg.Server.ReadTimeoutDuration(),
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      s.cfg.Server.WriteTimeoutDuration(),
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KB
 	}
 
 	log.Printf("Starting server on %s (base URL: %s)", addr, s.cfg.Server.BaseURL)
-	srv.Handler = lowercasePath(securityHeaders(mux))
 	return srv.ListenAndServe()
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"glimmer/internal/config"
 	"glimmer/internal/db"
@@ -13,11 +14,21 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// newTestServer builds a Server with the auth-gating fields initialised the
+// same way New() does, so handler-level tests don't hit nil channels/limiters.
+func newTestServer(cfg *config.Config) *Server {
+	return &Server{
+		cfg:         cfg,
+		authLimiter: newRateLimiter(time.Second),
+		bcryptSem:   make(chan struct{}, 1),
+	}
+}
+
 func TestMCPRequiresAuthentication(t *testing.T) {
-	srv := &Server{cfg: &config.Config{
+	srv := newTestServer(&config.Config{
 		Server: config.ServerConfig{BaseURL: "http://localhost:8888"},
 		MCP:    config.MCPConfig{Enabled: true, APIKey: "test-key"},
-	}}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	rec := httptest.NewRecorder()
@@ -30,10 +41,10 @@ func TestMCPRequiresAuthentication(t *testing.T) {
 }
 
 func TestMCPListsToolsWithAPIKey(t *testing.T) {
-	srv := &Server{cfg: &config.Config{
+	srv := newTestServer(&config.Config{
 		Server: config.ServerConfig{BaseURL: "http://localhost:8888"},
 		MCP:    config.MCPConfig{Enabled: true, APIKey: "test-key"},
-	}}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	req.Header.Set("Authorization", "Bearer test-key")
@@ -50,10 +61,10 @@ func TestMCPListsToolsWithAPIKey(t *testing.T) {
 }
 
 func TestMCPRejectsUnexpectedOrigin(t *testing.T) {
-	srv := &Server{cfg: &config.Config{
+	srv := newTestServer(&config.Config{
 		Server: config.ServerConfig{BaseURL: "http://localhost:8888"},
 		MCP:    config.MCPConfig{Enabled: true, APIKey: "test-key"},
-	}}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	req.Header.Set("Authorization", "Bearer test-key")
@@ -72,11 +83,11 @@ func TestMCPAcceptsBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
 	}
-	srv := &Server{cfg: &config.Config{
+	srv := newTestServer(&config.Config{
 		Server: config.ServerConfig{BaseURL: "http://localhost:8888"},
 		Admin:  config.AdminConfig{Username: "admin", PasswordHash: string(hash)},
 		MCP:    config.MCPConfig{Enabled: true},
-	}}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	req.SetBasicAuth("admin", "secret")
@@ -86,6 +97,39 @@ func TestMCPAcceptsBasicAuth(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestMCPRejectsWrongPasswordThenThrottles(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	srv := newTestServer(&config.Config{
+		Server: config.ServerConfig{BaseURL: "http://localhost:8888"},
+		Admin:  config.AdminConfig{Username: "admin", PasswordHash: string(hash)},
+		MCP:    config.MCPConfig{Enabled: true},
+	})
+
+	newReq := func() *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		req.SetBasicAuth("admin", "wrong")
+		req.RemoteAddr = "203.0.113.5:5555"
+		return req
+	}
+
+	rec := httptest.NewRecorder()
+	srv.handleMCP(rec, newReq())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("first bad attempt: expected 401, got %d", rec.Code)
+	}
+
+	// Second bad attempt from the same IP within the window is throttled before
+	// another bcrypt runs.
+	rec = httptest.NewRecorder()
+	srv.handleMCP(rec, newReq())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second bad attempt: expected 429, got %d", rec.Code)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type sessionStore struct {
@@ -159,17 +161,71 @@ func (rl *rateLimiter) Allow(ip string) bool {
 	return true
 }
 
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// First IP in the chain is the original client
-		if i := strings.Index(xff, ","); i > 0 {
-			return strings.TrimSpace(xff[:i])
+// clientIP returns the client IP for rate-limiting purposes. Forwarded headers
+// are only honoured when trustProxy is true, because any client can set them —
+// trusting them unconditionally lets an attacker rotate X-Forwarded-For to
+// bypass per-IP limits.
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// First IP in the chain is the original client
+			if i := strings.Index(xff, ","); i > 0 {
+				return strings.TrimSpace(xff[:i])
+			}
+			return strings.TrimSpace(xff)
 		}
-		return strings.TrimSpace(xff)
+		if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
 	}
-	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
-		return strings.TrimSpace(xri)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
+}
+
+// checkPassword runs a bcrypt comparison while bounding the number of
+// concurrent bcrypt operations. bcrypt is deliberately CPU-heavy, so an
+// unbounded flood of auth attempts can exhaust a single-core machine (e.g. an
+// RPi Zero). The semaphore caps concurrency; if the gate cannot be acquired
+// quickly the request is treated as temporarily unavailable (available=false)
+// and the caller should return 503 rather than queueing more work.
+func (srv *Server) checkPassword(hash, password string) (ok bool, available bool) {
+	select {
+	case srv.bcryptSem <- struct{}{}:
+		defer func() { <-srv.bcryptSem }()
+	case <-time.After(2 * time.Second):
+		return false, false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil, true
+}
+
+// limitConcurrency bounds the number of in-flight requests. Beyond the limit it
+// responds 503 instead of letting goroutines/buffers pile up and exhaust memory
+// on small hardware.
+func limitConcurrency(max int, next http.Handler) http.Handler {
+	sem := make(chan struct{}, max)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+			next.ServeHTTP(w, r)
+		default:
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "Server busy", http.StatusServiceUnavailable)
+		}
+	})
+}
+
+// limitBody caps the request body size for ordinary routes so a large POST
+// cannot exhaust memory. Upload handlers set their own (larger) MaxBytesReader
+// and are excluded.
+func limitBody(maxBytes int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && !strings.HasPrefix(r.URL.Path, "/admin/upload") {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

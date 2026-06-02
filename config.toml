@@ -5,12 +5,18 @@ port = 8888
 base_url = "http://luci.ooo"
 read_timeout = "5s"
 write_timeout = "10s"
+# Only enable if behind a trusted reverse proxy that sets X-Forwarded-For.
+# When false, the real connection IP is used for rate limiting (cannot be spoofed).
+trust_proxy = false
+# Maximum number of in-flight HTTP requests before returning 503. Tune down on
+# very small hardware (e.g. RPi Zero) to bound memory/CPU use.
+max_concurrent = 64
 
 [admin]
 username = "admin"
-# Default password: "admin" — change this!
-# Generate a new hash: ./glimmer --hash-password "your-password"
-password_hash = "$2a$10$WXBoF7ZB7fIRl5smdGH9seqlNbXWiCS7ZbGNk0ONb9xjS8499gBpu"
+# REQUIRED — the server refuses to start without this.
+# Generate a hash: ./glimmer --hash-password "your-password"
+password_hash = ""
 session_hours = 24
 
 [mcp]

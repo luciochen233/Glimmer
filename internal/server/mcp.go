@@ -15,8 +15,6 @@ import (
 
 	"glimmer/internal/db"
 	"glimmer/internal/slug"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 const mcpProtocolVersion = "2025-06-18"
@@ -50,7 +48,30 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeMCPHTTPError(w, nil, http.StatusForbidden, -32000, "Forbidden origin")
 		return
 	}
-	if !s.authorizeMCP(r) {
+
+	// Fast path: API key (constant-time, no bcrypt). Preferred for clients that
+	// make many requests. Falls back to Basic auth, which is CPU-expensive and
+	// therefore both per-IP rate-limited and routed through the bcrypt gate so
+	// it cannot exhaust the CPU on small hardware.
+	authorized := s.mcpAPIKeyAuth(r)
+	if !authorized {
+		if r.Header.Get("Authorization") != "" {
+			ip := clientIP(r, s.cfg.Server.TrustProxy)
+			if !s.authLimiter.Allow(ip) {
+				w.Header().Set("Retry-After", "1")
+				writeMCPHTTPError(w, nil, http.StatusTooManyRequests, -32000, "Too many attempts")
+				return
+			}
+		}
+		ok, available := s.mcpBasicAuth(r)
+		if !available {
+			w.Header().Set("Retry-After", "1")
+			writeMCPHTTPError(w, nil, http.StatusServiceUnavailable, -32000, "Server busy")
+			return
+		}
+		authorized = ok
+	}
+	if !authorized {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="Glimmer MCP", Basic realm="Glimmer MCP"`)
 		writeMCPHTTPError(w, nil, http.StatusUnauthorized, -32000, "Unauthorized")
 		return
@@ -99,21 +120,34 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) authorizeMCP(r *http.Request) bool {
-	if s.cfg.MCP.APIKey != "" {
-		if token := bearerToken(r.Header.Get("Authorization")); token != "" && constantTimeEqual(token, s.cfg.MCP.APIKey) {
-			return true
-		}
-		if token := r.Header.Get("X-API-Key"); token != "" && constantTimeEqual(token, s.cfg.MCP.APIKey) {
-			return true
-		}
-	}
-
-	username, password, ok := r.BasicAuth()
-	if !ok || username != s.cfg.Admin.Username || s.cfg.Admin.PasswordHash == "" {
+// mcpAPIKeyAuth checks the configured API key via constant-time comparison.
+// Returns false (rather than matching) when no API key is configured.
+func (s *Server) mcpAPIKeyAuth(r *http.Request) bool {
+	if s.cfg.MCP.APIKey == "" {
 		return false
 	}
-	return bcrypt.CompareHashAndPassword([]byte(s.cfg.Admin.PasswordHash), []byte(password)) == nil
+	if token := bearerToken(r.Header.Get("Authorization")); token != "" && constantTimeEqual(token, s.cfg.MCP.APIKey) {
+		return true
+	}
+	if token := r.Header.Get("X-API-Key"); token != "" && constantTimeEqual(token, s.cfg.MCP.APIKey) {
+		return true
+	}
+	return false
+}
+
+// mcpBasicAuth verifies HTTP Basic credentials against the admin password.
+// available is false when the bcrypt gate is saturated (caller should 503).
+func (s *Server) mcpBasicAuth(r *http.Request) (ok bool, available bool) {
+	username, password, hasAuth := r.BasicAuth()
+	if !hasAuth || s.cfg.Admin.PasswordHash == "" {
+		return false, true
+	}
+	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.Admin.Username)) == 1
+	pwOK, available := s.checkPassword(s.cfg.Admin.PasswordHash, password)
+	if !available {
+		return false, false
+	}
+	return userOK && pwOK, true
 }
 
 func (s *Server) validMCPOrigin(r *http.Request) bool {
