@@ -49,12 +49,13 @@ func securityHeaders(next http.Handler) http.Handler {
 		// All assets are served from the same origin (Pico CSS is vendored
 		// locally), so the app works fully offline and we can lock the origin
 		// down. img-src allows data: and https: so uploaded/remote images and
-		// favicons still render. 'unsafe-inline' is required by the inline
+		// favicons still render, and blob: so the client-side image compressor
+		// (canvas) can load a selected file before upload. 'unsafe-inline' is required by the inline
 		// scripts/styles in the templates; object-src/base-uri/frame-ancestors
 		// are pinned to blunt injection and clickjacking.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"img-src 'self' data: https:; "+
+				"img-src 'self' data: https: blob:; "+
 				"style-src 'self' 'unsafe-inline'; "+
 				"script-src 'self' 'unsafe-inline'; "+
 				"object-src 'none'; "+
