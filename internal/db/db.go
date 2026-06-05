@@ -87,6 +87,12 @@ func migrate(conn *sql.DB) error {
 			original_name TEXT NOT NULL DEFAULT '',
 			created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 		);
+		CREATE TABLE IF NOT EXISTS sessions (
+			token      TEXT PRIMARY KEY,
+			expires_at TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 	`)
 	if err != nil {
 		return fmt.Errorf("running migrations: %w", err)
@@ -286,6 +292,40 @@ func scanPaste(row *sql.Row) (*Paste, error) {
 	p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
 	p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updated)
 	return &p, nil
+}
+
+// ---- Sessions (persisted so logins survive a server restart) ----
+
+// CreateSession stores a session token with an absolute expiry. Times are
+// stored in UTC to match SQLite's datetime('now'), which is also UTC.
+func (d *DB) CreateSession(token string, expiresAt time.Time) error {
+	_, err := d.conn.Exec(
+		"INSERT OR REPLACE INTO sessions (token, expires_at) VALUES (?, ?)",
+		token, expiresAt.UTC().Format("2006-01-02 15:04:05"),
+	)
+	return err
+}
+
+// SessionValid reports whether a token exists and has not expired. The expiry
+// comparison happens in SQL against datetime('now') (UTC).
+func (d *DB) SessionValid(token string) (bool, error) {
+	var count int
+	err := d.conn.QueryRow(
+		"SELECT COUNT(*) FROM sessions WHERE token = ? AND expires_at > datetime('now')",
+		token,
+	).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) DeleteSession(token string) error {
+	_, err := d.conn.Exec("DELETE FROM sessions WHERE token = ?", token)
+	return err
+}
+
+// CleanupSessions removes expired sessions.
+func (d *DB) CleanupSessions() error {
+	_, err := d.conn.Exec("DELETE FROM sessions WHERE expires_at <= datetime('now')")
+	return err
 }
 
 // ---- Upload metadata ----

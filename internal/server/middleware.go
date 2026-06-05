@@ -10,20 +10,21 @@ import (
 	"sync"
 	"time"
 
+	"glimmer/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// sessionStore persists sessions in the database so logins survive a server
+// restart. It is a thin wrapper around the DB with a periodic cleanup of
+// expired rows.
 type sessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]time.Time
-	ttl      time.Duration
+	db  *db.DB
+	ttl time.Duration
 }
 
-func newSessionStore(ttl time.Duration) *sessionStore {
-	s := &sessionStore{
-		sessions: make(map[string]time.Time),
-		ttl:      ttl,
-	}
+func newSessionStore(database *db.DB, ttl time.Duration) *sessionStore {
+	s := &sessionStore{db: database, ttl: ttl}
+	database.CleanupSessions() // purge anything already expired at startup
 	go s.cleanup()
 	return s
 }
@@ -32,14 +33,7 @@ func (s *sessionStore) cleanup() {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for token, expiry := range s.sessions {
-			if now.After(expiry) {
-				delete(s.sessions, token)
-			}
-		}
-		s.mu.Unlock()
+		s.db.CleanupSessions()
 	}
 }
 
@@ -49,32 +43,19 @@ func (s *sessionStore) Create() (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(b)
-	s.mu.Lock()
-	s.sessions[token] = time.Now().Add(s.ttl)
-	s.mu.Unlock()
+	if err := s.db.CreateSession(token, time.Now().Add(s.ttl)); err != nil {
+		return "", err
+	}
 	return token, nil
 }
 
 func (s *sessionStore) Valid(token string) bool {
-	s.mu.RLock()
-	expiry, ok := s.sessions[token]
-	s.mu.RUnlock()
-	if !ok {
-		return false
-	}
-	if time.Now().After(expiry) {
-		s.mu.Lock()
-		delete(s.sessions, token)
-		s.mu.Unlock()
-		return false
-	}
-	return true
+	ok, _ := s.db.SessionValid(token)
+	return ok
 }
 
 func (s *sessionStore) Delete(token string) {
-	s.mu.Lock()
-	delete(s.sessions, token)
-	s.mu.Unlock()
+	s.db.DeleteSession(token)
 }
 
 func (srv *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {

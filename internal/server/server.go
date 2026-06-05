@@ -34,7 +34,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 	return &Server{
 		cfg:         cfg,
 		db:          database,
-		sessions:    newSessionStore(ttl),
+		sessions:    newSessionStore(database, ttl),
 		limiter:     newRateLimiter(1 * time.Second),
 		authLimiter: newRateLimiter(1 * time.Second),
 		bcryptSem:   make(chan struct{}, bcryptWorkers),
