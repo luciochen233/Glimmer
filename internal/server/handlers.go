@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"glimmer/internal/db"
 	"glimmer/internal/slug"
 
 	"github.com/yuin/goldmark"
@@ -544,8 +545,16 @@ func (s *Server) handleAdminBin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
+	cards := make([]pasteCard, 0, len(pastes))
+	for _, p := range pastes {
+		cards = append(cards, pasteCard{
+			Paste:    p,
+			Summary:  pasteSummary(p.Content, 140),
+			ThumbURL: thumbURLFor(firstPasteImage(p.Content)),
+		})
+	}
 	d := s.adminPage(w, r)
-	d.Pastes = pastes
+	d.Pastes = cards
 	renderTemplate(w, "admin_bin.html", d)
 }
 
@@ -776,6 +785,158 @@ func scaleImage(src image.Image, maxDim int) image.Image {
 	return dst
 }
 
+// ---- Thumbnails ----
+
+const thumbMaxDim = 512 // long-side size of generated thumbnails, in pixels
+
+// thumbDir is the directory thumbnails are cached in (a subdir of uploads).
+func (s *Server) thumbDir() string {
+	return filepath.Join(s.cfg.Upload.Dir, "thumbs")
+}
+
+// thumbPath returns the on-disk path of the thumbnail for an upload filename.
+// Thumbnails are always JPEG, named after the original's hash.
+func (s *Server) thumbPath(filename string) string {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	return filepath.Join(s.thumbDir(), base+".jpg")
+}
+
+// generateThumbnail decodes an uploaded image, scales it so its long side is at
+// most thumbMaxDim px, and writes a cached JPEG thumbnail. Best-effort: returns
+// an error for formats it can't decode (e.g. WebP), leaving callers to fall
+// back to the original file.
+func (s *Server) generateThumbnail(filename string) error {
+	if !isImageFile(filename) {
+		return fmt.Errorf("not an image")
+	}
+	f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, filename))
+	if err != nil {
+		return err
+	}
+	src, _, err := image.Decode(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	dst := scaleImage(src, thumbMaxDim)
+	if err := os.MkdirAll(s.thumbDir(), 0755); err != nil {
+		return err
+	}
+	tp := s.thumbPath(filename)
+	tmp := tp + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if err := jpeg.Encode(out, dst, &jpeg.Options{Quality: 82}); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	out.Close()
+	return os.Rename(tmp, tp)
+}
+
+// handleThumb serves a cached 512px (long side) JPEG thumbnail for an uploaded
+// image, generating it on first request. Falls back to serving the original
+// inline for images it can't decode (e.g. WebP).
+func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("filename")
+	if !validUploadFilename(name) || !isImageFile(name) {
+		http.NotFound(w, r)
+		return
+	}
+	orig := filepath.Join(s.cfg.Upload.Dir, name)
+	if _, err := os.Stat(orig); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tp := s.thumbPath(name)
+	if _, err := os.Stat(tp); err != nil {
+		if err := s.generateThumbnail(name); err != nil {
+			// Can't thumbnail this format — serve the original inline.
+			http.ServeFile(w, r, orig)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, tp)
+}
+
+// ---- Paste card helpers (admin Pastes grid) ----
+
+type pasteCard struct {
+	db.Paste
+	Summary  string
+	ThumbURL string // thumbnail URL for the first image, or "" if none
+}
+
+var (
+	pasteImgMDRe   = regexp.MustCompile(`!\[[^\]]*\]\(\s*(\S+?)\s*\)`)
+	pasteImgHTMLRe = regexp.MustCompile(`(?i)<img[^>]+src=["']?([^"'>\s]+)`)
+	fencedCodeRe   = regexp.MustCompile("(?s)```.*?```")
+	mdLinkRe       = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	mdStripRe      = regexp.MustCompile("[#>*_`~|<>\\-]+")
+)
+
+// firstPasteImage returns the URL of the first image referenced in paste
+// content (markdown or HTML), or "" if there is none.
+func firstPasteImage(content string) string {
+	idxMD, idxHTML := -1, -1
+	var urlMD, urlHTML string
+	if m := pasteImgMDRe.FindStringSubmatchIndex(content); m != nil {
+		idxMD, urlMD = m[0], content[m[2]:m[3]]
+	}
+	if m := pasteImgHTMLRe.FindStringSubmatchIndex(content); m != nil {
+		idxHTML, urlHTML = m[0], content[m[2]:m[3]]
+	}
+	switch {
+	case idxMD == -1 && idxHTML == -1:
+		return ""
+	case idxHTML == -1:
+		return urlMD
+	case idxMD == -1:
+		return urlHTML
+	case idxMD <= idxHTML:
+		return urlMD
+	default:
+		return urlHTML
+	}
+}
+
+// thumbURLFor maps a paste's first image URL to a card thumbnail URL. Local
+// uploads use the on-the-fly thumbnail route; remote https images are used
+// as-is (allowed by CSP img-src); anything else yields no thumbnail.
+func thumbURLFor(rawURL string) string {
+	if strings.HasPrefix(rawURL, "/uploads/") {
+		name := strings.TrimPrefix(rawURL, "/uploads/")
+		if validUploadFilename(name) && isImageFile(name) {
+			return "/uploads/thumb/" + name
+		}
+		return ""
+	}
+	if strings.HasPrefix(rawURL, "https://") {
+		return rawURL
+	}
+	return ""
+}
+
+// pasteSummary produces a short plain-text excerpt from paste content by
+// stripping code fences, images, link targets, and markdown punctuation.
+func pasteSummary(content string, max int) string {
+	t := fencedCodeRe.ReplaceAllString(content, " ")
+	t = pasteImgMDRe.ReplaceAllString(t, " ")
+	t = mdLinkRe.ReplaceAllString(t, "$1")
+	t = mdStripRe.ReplaceAllString(t, " ")
+	t = strings.Join(strings.Fields(t), " ")
+	r := []rune(t)
+	if len(r) > max {
+		return strings.TrimSpace(string(r[:max])) + "…"
+	}
+	return t
+}
+
 // handleUploadsServe serves files from the upload directory. For non-image
 // files it forces Content-Disposition: attachment with an octet-stream type so
 // that arbitrary uploads (e.g. HTML, SVG, JS) cannot be rendered in-browser
@@ -886,6 +1047,7 @@ func (s *Server) handleAdminUploadDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	os.Remove(filepath.Join(s.cfg.Upload.Dir, filename))
+	os.Remove(s.thumbPath(filename))
 	s.db.DeleteUpload(filename)
 	http.Redirect(w, r, "/admin/uploads", http.StatusSeeOther)
 }
@@ -945,6 +1107,7 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 		jsonError(w, "Failed to save resized image", http.StatusInternalServerError)
 		return
 	}
+	os.Remove(s.thumbPath(filename)) // invalidate cached thumbnail; regenerated on next view
 
 	info, _ := os.Stat(path)
 	var newSize int64
@@ -1067,6 +1230,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	displayName := sanitizeDisplayFilename(header.Filename)
 	s.db.RecordUpload(filename, displayName)
+	_ = s.generateThumbnail(filename) // best-effort; lazily regenerated on first view otherwise
 
 	imgURL := "/uploads/" + filename
 	w.Header().Set("Content-Type", "application/json")
