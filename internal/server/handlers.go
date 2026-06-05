@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"image"
@@ -975,7 +976,25 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	rc.SetReadDeadline(time.Now().Add(120 * time.Second))
 	rc.SetWriteDeadline(time.Now().Add(120 * time.Second))
 
-	// Verify CSRF manually (must happen after MaxBytesReader is set)
+	// Parse the multipart body explicitly BEFORE checking CSRF. verifyCSRF reads
+	// a form value, which would otherwise trigger an implicit ParseMultipartForm
+	// and surface an oversized body (tripping MaxBytesReader above) as a bogus
+	// "Invalid CSRF token" 403. Parsing here lets us report the real cause (413).
+	// A small maxMemory keeps large uploads spilling to temp files, not RAM (RPi Zero).
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("File too large (max %d MB)", s.cfg.Upload.MaxSize)})
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid upload"})
+		}
+		return
+	}
+
+	// Verify CSRF (form already parsed; no body re-read).
 	if !verifyCSRF(r) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -986,13 +1005,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		if err.Error() == "http: request body too large" {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("File too large (max %d MB)", s.cfg.Upload.MaxSize)})
-		} else {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "No file provided"})
-		}
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No file provided"})
 		return
 	}
 	defer file.Close()
@@ -1073,6 +1087,17 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	rc.SetReadDeadline(time.Now().Add(120 * time.Second))
 	rc.SetWriteDeadline(time.Now().Add(120 * time.Second))
 
+	// Parse before CSRF so an oversized body is reported as 413, not a bogus 403.
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
+		} else {
+			jsonError(w, "Invalid upload", http.StatusBadRequest)
+		}
+		return
+	}
+
 	if !verifyCSRF(r) {
 		jsonError(w, "Invalid CSRF token", http.StatusForbidden)
 		return
@@ -1080,11 +1105,7 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		if err.Error() == "http: request body too large" {
-			jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
-		} else {
-			jsonError(w, "No file provided", http.StatusBadRequest)
-		}
+		jsonError(w, "No file provided", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
