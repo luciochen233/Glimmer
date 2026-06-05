@@ -26,67 +26,70 @@
 		<a href="/admin/bin" class="tab-link active">Pastes</a>
 		<a href="/admin/uploads" class="tab-link">Uploads</a>
 	</div>
-	<main class="container" style="max-width:960px">
+	<main class="container" style="max-width:1180px">
 		{{if .Error}}
 		<article aria-label="error" class="alert-error">{{.Error}}</article>
 		{{end}}
 
-		<article class="card-table">
-			<div class="section-header">
-				<hgroup>
-					<h2>Pastes</h2>
-					<p>{{len .Pastes}} pastes</p>
-				</hgroup>
-				<a href="/admin/bin/new" role="button" class="btn-sm">+ New Paste</a>
-			</div>
-			<figure>
-			<table role="grid">
-				<thead>
-					<tr>
-						<th>Name</th>
-						<th>Title</th>
-						<th>Format</th>
-						<th>Token</th>
-						<th>Updated</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{{range .Pastes}}
-					<tr>
-						<td><a href="/bin/{{.Name}}{{if .Token}}/{{.Token}}{{end}}" target="_blank">{{.Name}}</a></td>
-						<td>{{.Title}}</td>
-						<td><mark class="badge-format">{{.Format}}</mark></td>
-						<td>{{if .Token}}<mark class="badge-token">&#128274; token</mark>{{else}}<mark class="badge-public">public</mark>{{end}}{{if .Hidden}} <mark class="badge-hidden">hidden</mark>{{end}}</td>
-						<td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
-						<td>
-							<div role="group">
-								<a href="/admin/bin/edit/{{.ID}}" role="button" class="outline">Edit</a>
-								<button type="button" class="outline" onclick="showBinQR('{{.Name}}', false)">QR</button>
-								{{if .Token}}<button type="button" class="outline" onclick="showBinQR('{{.Name}}', true)">Full QR</button>{{end}}
-								<form method="post" action="/admin/bin/delete/{{.ID}}" onsubmit="return confirm('Delete paste {{.Name}}?')">
-									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-									<button type="submit" class="outline secondary">Del</button>
-								</form>
-							</div>
-						</td>
-					</tr>
-					{{else}}
-					<tr>
-						<td colspan="6">
-							<div class="empty-state">
-								<span class="empty-icon">&#128196;</span>
-								<p>No pastes yet.</p>
-								<a href="/admin/bin/new">Create your first paste</a>
-							</div>
-						</td>
-					</tr>
-					{{end}}
-				</tbody>
-			</table>
-			</figure>
-		</article>
+		<div class="section-header" style="padding-left:0;padding-right:0">
+			<hgroup>
+				<h2>Pastes</h2>
+				<p>{{len .Pastes}} pastes</p>
+			</hgroup>
+			<a href="/admin/bin/new" role="button" class="btn-sm">+ New Paste</a>
+		</div>
+
+		{{if .Pastes}}
+		<div class="pcard-grid">
+			{{range .Pastes}}
+			<article class="pcard js-preview" data-name="{{.Name}}" data-token="{{.Token}}" data-title="{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}" role="button" tabindex="0">
+				{{if .ThumbURL}}
+				<div class="pcard-imgwrap">
+					<img class="pcard-img" src="{{.ThumbURL}}" alt="" loading="lazy">
+				</div>
+				{{end}}
+				<div class="pcard-body">
+					<h3 class="pcard-title">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</h3>
+					{{if .Summary}}<p class="pcard-summary">{{.Summary}}</p>{{end}}
+					<div class="pcard-meta">
+						<mark class="badge-format">{{.Format}}</mark>
+						{{if .Token}}<mark class="badge-token">&#128274;</mark>{{else}}<mark class="badge-public">public</mark>{{end}}
+						{{if .Hidden}}<mark class="badge-hidden">hidden</mark>{{end}}
+						<span class="pcard-date">{{.UpdatedAt.Format "01-02 15:04"}}</span>
+					</div>
+					<div class="pcard-actions" role="group">
+						<button type="button" class="outline" onclick="copyPasteLink('{{.Name}}','{{.Token}}', this)">Copy link</button>
+						<a href="/admin/bin/edit/{{.ID}}" role="button" class="outline">Edit</a>
+						<button type="button" class="outline" onclick="showBinQR('{{.Name}}', false)">QR</button>
+						<form method="post" action="/admin/bin/delete/{{.ID}}" onsubmit="return confirm('Delete paste {{.Name}}?')">
+							<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+							<button type="submit" class="outline secondary">Del</button>
+						</form>
+					</div>
+				</div>
+			</article>
+			{{end}}
+		</div>
+		{{else}}
+		<div class="empty-state">
+			<span class="empty-icon">&#128196;</span>
+			<p>No pastes yet.</p>
+			<a href="/admin/bin/new">Create your first paste</a>
+		</div>
+		{{end}}
 	</main>
+
+	<dialog id="preview-dialog" class="preview-dialog">
+		<div class="preview-head">
+			<span class="preview-title" id="preview-title">Preview</span>
+			<div class="preview-actions">
+				<a id="preview-open" href="#" target="_blank" rel="noopener" role="button" class="outline btn-sm">Open &#8599;</a>
+				<button type="button" class="outline btn-sm" id="preview-expand" onclick="toggleExpand()" aria-label="Expand">&#8690;</button>
+				<button type="button" class="btn-sm preview-close" onclick="closePreview()" aria-label="Close">&#10005;</button>
+			</div>
+		</div>
+		<iframe id="preview-frame" class="preview-frame" src="about:blank" title="Paste preview"></iframe>
+	</dialog>
 <dialog id="qr-dialog">
 	<article>
 		<header>
@@ -97,6 +100,65 @@
 	</article>
 </dialog>
 <script>
+	function previewURL(name, token) {
+		var u = '/bin/' + encodeURIComponent(name);
+		if (token) u += '/' + encodeURIComponent(token);
+		return u;
+	}
+
+	function openPreview(name, token, title) {
+		var dlg = document.getElementById('preview-dialog');
+		var url = previewURL(name, token);
+		document.getElementById('preview-frame').src = url;
+		document.getElementById('preview-open').href = url;
+		document.getElementById('preview-title').textContent = title || name;
+		dlg.classList.remove('expanded');
+		document.getElementById('preview-expand').innerHTML = '&#8690;';
+		document.getElementById('preview-expand').setAttribute('aria-label', 'Expand');
+		dlg.showModal();
+	}
+
+	function closePreview() {
+		document.getElementById('preview-dialog').close();
+	}
+
+	function toggleExpand() {
+		var dlg = document.getElementById('preview-dialog');
+		var expanded = dlg.classList.toggle('expanded');
+		var btn = document.getElementById('preview-expand');
+		btn.innerHTML = expanded ? '&#8689;' : '&#8690;';
+		btn.setAttribute('aria-label', expanded ? 'Shrink' : 'Expand');
+	}
+
+	function copyPasteLink(name, token, btn) {
+		var url = location.origin + previewURL(name, token);
+		navigator.clipboard.writeText(url).then(function() {
+			var orig = btn.textContent;
+			btn.textContent = 'Copied!';
+			setTimeout(function() { btn.textContent = orig; }, 1500);
+		});
+	}
+
+	// Clicking anywhere on a card opens the preview, except on the action
+	// buttons. Data attributes avoid quoting issues with paste titles.
+	document.querySelectorAll('.js-preview').forEach(function(el) {
+		el.addEventListener('click', function(e) {
+			if (e.target.closest('.pcard-actions')) return;
+			openPreview(el.dataset.name, el.dataset.token, el.dataset.title);
+		});
+		el.addEventListener('keydown', function(e) {
+			if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.pcard-actions')) {
+				e.preventDefault();
+				openPreview(el.dataset.name, el.dataset.token, el.dataset.title);
+			}
+		});
+	});
+
+	// Clear the iframe when the dialog is dismissed via Esc / backdrop / button.
+	document.getElementById('preview-dialog').addEventListener('close', function() {
+		document.getElementById('preview-frame').src = 'about:blank';
+	});
+
 	function showBinQR(name, full) {
 		var container = document.getElementById('qr-container');
 		var title = document.getElementById('qr-title');

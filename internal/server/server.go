@@ -43,7 +43,9 @@ func New(cfg *config.Config, database *db.DB) *Server {
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Frame-Options", "DENY")
+		// SAMEORIGIN (not DENY) so the admin Pastes page can preview a paste in
+		// an in-page iframe; cross-site framing is still blocked.
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// All assets are served from the same origin (Pico CSS is vendored
@@ -51,8 +53,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		// down. img-src allows data: and https: so uploaded/remote images and
 		// favicons still render, and blob: so the client-side image compressor
 		// (canvas) can load a selected file before upload. 'unsafe-inline' is required by the inline
-		// scripts/styles in the templates; object-src/base-uri/frame-ancestors
-		// are pinned to blunt injection and clickjacking.
+		// scripts/styles in the templates; object-src/base-uri are pinned to
+		// blunt injection; frame-ancestors 'self' permits the same-origin paste
+		// preview iframe while blocking cross-site clickjacking.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"img-src 'self' data: https: blob:; "+
@@ -60,7 +63,7 @@ func securityHeaders(next http.Handler) http.Handler {
 				"script-src 'self' 'unsafe-inline'; "+
 				"object-src 'none'; "+
 				"base-uri 'none'; "+
-				"frame-ancestors 'none'")
+				"frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -96,6 +99,8 @@ func (s *Server) Start() error {
 
 	// Uploaded files (public — appear in public pastes). Non-image files are
 	// served as attachments to prevent same-origin XSS via HTML/SVG/JS uploads.
+	// The more specific /uploads/thumb/ route wins for thumbnails.
+	mux.HandleFunc("GET /uploads/thumb/{filename}", s.handleThumb)
 	mux.HandleFunc("GET /uploads/", s.handleUploadsServe)
 
 	// Public routes
