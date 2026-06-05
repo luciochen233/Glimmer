@@ -169,6 +169,7 @@
 			imgInput:  document.getElementById('img-input'),
 			fileInput: document.getElementById('file-input'),
 			statusEl:  status,
+			maxImageMB: {{.UploadMaxMB}},
 			onUploaded: function(data) {
 				insertAtCursor(data.markdown);
 				status.textContent = 'Uploaded';

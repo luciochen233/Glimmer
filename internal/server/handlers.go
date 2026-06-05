@@ -53,6 +53,7 @@ type pageData struct {
 	Uploads     any
 	LoggedIn    bool
 	CSRFToken   string
+	UploadMaxMB int64
 }
 
 type UploadInfo struct {
@@ -344,9 +345,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminPage(w http.ResponseWriter, r *http.Request) pageData {
 	return pageData{
-		BaseURL:   s.baseURL(r),
-		LoggedIn:  true,
-		CSRFToken: csrfToken(w, r),
+		BaseURL:     s.baseURL(r),
+		LoggedIn:    true,
+		CSRFToken:   csrfToken(w, r),
+		UploadMaxMB: s.cfg.Upload.MaxSize,
 	}
 }
 
