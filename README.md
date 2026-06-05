@@ -423,6 +423,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `GET` | `/bin/{name}` | Public | View paste |
 | `GET` | `/bin/{name}/{token}` | Public | View token-protected paste |
 | `GET` | `/uploads/{filename}` | Public | Serve uploaded image inline; non-images forced as `attachment` |
+| `GET` | `/uploads/thumb/{filename}` | Public | Serve a 512px (long side) JPEG thumbnail of an uploaded image, generated and cached on first request |
 | `GET` | `/admin/login` | Public | Login form |
 | `POST` | `/admin/login` | Public | Submit login |
 | `POST` | `/admin/logout` | Admin | Logout (CSRF protected) |
