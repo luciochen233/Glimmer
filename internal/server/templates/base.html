@@ -1,0 +1,120 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <title>{{block "title" .}}Glimmer{{end}}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container {{if not .LoggedIn}}public-layout{{end}}">
+        {{if .LoggedIn}}
+        <aside class="sidebar">
+            <a href="/admin" class="brand">
+                <div class="brand-logo">G</div>
+                <span class="brand-name">Glimmer</span>
+            </a>
+
+            <nav>
+                <ul class="nav-list">
+                    <li class="nav-item {{if eq .ActiveNav "links"}}active{{end}}">
+                        <a href="/admin" class="nav-link">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+                            Links
+                        </a>
+                    </li>
+                    <li class="nav-item {{if eq .ActiveNav "pastes"}}active{{end}}">
+                        <a href="/admin/bin" class="nav-link">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                            Pastes
+                        </a>
+                    </li>
+                    <li class="nav-item {{if eq .ActiveNav "uploads"}}active{{end}}">
+                        <a href="/admin/uploads" class="nav-link">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                            Uploads
+                        </a>
+                    </li>
+                    <li class="nav-item {{if eq .ActiveNav "shorten"}}active{{end}}">
+                        <a href="/" class="nav-link">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                            New Link
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="/" class="btn btn-secondary btn-sm btn-block" style="justify-content:center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
+                    Home
+                </a>
+                <form action="/admin/logout" method="POST" style="margin:0">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-secondary btn-sm btn-block" style="justify-content:center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg>
+                        Log out
+                    </button>
+                </form>
+            </div>
+        </aside>
+        {{else}}
+        <header class="public-header">
+            <a href="/" class="public-brand">
+                <div class="brand-logo">G</div>
+                <span class="brand-name">Glimmer</span>
+            </a>
+            <div>
+                {{if .LoggedIn}}
+                <a href="/admin" class="btn btn-secondary btn-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/></svg>
+                    Admin
+                </a>
+                {{else}}
+                <a href="/admin/login" class="btn btn-secondary btn-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
+                    Admin
+                </a>
+                {{end}}
+            </div>
+        </header>
+        {{end}}
+
+        <main class="main-wrapper">
+            {{template "content" .}}
+        </main>
+    </div>
+
+    <!-- QR Code Preview Modal -->
+    <div id="qr-modal-overlay" class="qr-modal-overlay" onclick="if(event.target===this)closeQRModal()">
+        <div id="qr-modal-card" class="qr-modal-card">
+            <button class="qr-modal-close" onclick="closeQRModal()" aria-label="Close">&times;</button>
+            <h3>QR Code</h3>
+            <img id="qr-modal-image" class="qr-modal-image" src="" alt="QR Code">
+            <code id="qr-modal-link" class="qr-modal-link"></code>
+            <a id="qr-modal-download" download="" href="" class="btn btn-primary btn-block" style="font-size:0.9rem; text-align:center;">Download PNG</a>
+        </div>
+    </div>
+
+    <script>
+        function openQRModal(slug, name) {
+            var overlay = document.getElementById('qr-modal-overlay');
+            document.getElementById('qr-modal-image').src = '/admin/qr/' + slug;
+            document.getElementById('qr-modal-link').textContent = '/admin/qr/' + slug;
+            var dl = document.getElementById('qr-modal-download');
+            dl.href = '/admin/qr/' + slug;
+            dl.download = (name || slug) + '_QR.svg';
+            overlay.classList.add('show');
+        }
+        function closeQRModal() {
+            document.getElementById('qr-modal-overlay').classList.remove('show');
+            document.getElementById('qr-modal-image').src = '';
+        }
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeQRModal();
+        });
+    </script>
+</body>
+</html>{{end}}

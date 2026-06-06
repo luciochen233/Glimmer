@@ -44,14 +44,18 @@ glimmer/
         ├── middleware.go            # Auth, CSRF, sessions, rate limiter
         ├── templates.go             # embed.FS for templates + static; initTemplates()
         ├── static/
-        │   ├── style.css            # Custom styles on top of Pico CSS 2
+        │   ├── css/
+        │   │   └── style.css        # Custom Solis-style design system (amber/cream, Outfit font)
+        │   ├── favicon.ico
+        │   ├── favicon.png
         │   └── upload.js            # Shared client-side upload helper (window.GlimmerUpload)
         └── templates/
+            ├── base.html            # Layout wrapper: sidebar (logged in) or public header
             ├── index.html           # Public: URL shortener form
-            ├── admin_login.html     # Login (dark, centered)
+            ├── admin_login.html     # Login (light, centered card)
             ├── admin.html           # Dashboard: stats, tiles, links tables
             ├── admin_edit.html      # Edit a single link
-            ├── admin_bin.html       # Pastes list
+            ├── admin_bin.html       # Pastes list (cards + preview dialog)
             ├── admin_bin_edit.html  # Create / edit paste (uses /static/upload.js)
             ├── admin_uploads.html   # Image + file upload management
             ├── bin_view.html        # Public paste viewer
@@ -89,7 +93,13 @@ Templates and static files are embedded into the binary via `//go:embed` in `tem
 All JavaScript is vanilla ES5-style (`var`, not `const`/`let`). Most JS is inline in templates; shared upload logic lives in `static/upload.js` and is exposed as `window.GlimmerUpload`. No build step, no npm, no bundler.
 
 ### CSS framework
-[Pico CSS 2](https://picocss.com/) is **vendored locally** at `static/pico.min.css` (served from `/static/pico.min.css`) so the app works fully offline with no external requests. Custom overrides in `static/style.css`. Admin pages use `data-theme="dark"`. Do not reintroduce CDN `<link>`/`<script>`/image references — everything must be same-origin (enforced by the `Content-Security-Policy` header in `securityHeaders`).
+**No CSS framework.** Glimmer uses a custom design system in `static/css/style.css` inspired by Solis's "Sunlight & Clarity" theme — warm amber (`#d97706`) on cream (`#fafaf9`) with Outfit font, sidebar + main-area layout, soft shadows with amber tint, cubic-bezier spring animations on toasts/modals. The CSS is served from `/static/css/style.css` so the app works fully offline. The Outfit font itself is loaded from Google Fonts (one external request); replace with a vendored woff2 if you need a true air-gapped build. Do not reintroduce CDN `<link>`/`<script>`/image references — everything must be same-origin (enforced by the `Content-Security-Policy` header in `securityHeaders`).
+
+### Layout
+Admin pages share a `base.html` layout that renders a 260px fixed sidebar (when `.LoggedIn`) or a sticky public header (otherwise). Each page template defines its own `{{define "content"}}...{{end}}` block; `base.html` calls `{{template "content" .}}` to inject it. The active sidebar item is driven by the `ActiveNav` field in `pageData` (`"links"`, `"pastes"`, `"uploads"`, or `"shorten"`). Use `s.adminPage(w, r, "links")` to get a pre-populated `pageData` for an admin route.
+
+### Theme
+Single light theme only — no `data-theme` switching. The design tokens are documented in the `:root` of `static/css/style.css`.
 
 ---
 
@@ -125,14 +135,12 @@ Shared upload rules:
 Only PNG (`.png`) and JPEG (`.jpg`) are resizable. Resize uses a nearest-neighbour scale implemented in stdlib (`image`, `image/color`, `image/jpeg`, `image/png`) — no external image library. GIF and WebP are served and deletable but not resizable.
 
 ### Admin tabs
-Every admin page (`admin.html`, `admin_bin.html`, `admin_bin_edit.html`, `admin_uploads.html`) must include the full three-tab nav. Add the `active` class to the correct tab:
-```html
-<div class="admin-tabs">
-    <a href="/admin"         class="tab-link [active]">Links</a>
-    <a href="/admin/bin"     class="tab-link [active]">Pastes</a>
-    <a href="/admin/uploads" class="tab-link [active]">Uploads</a>
-</div>
+Admin pages share a sidebar rendered by `base.html`. To highlight the current section, set `ActiveNav` on the `pageData`:
+```go
+d := s.adminPage(w, r, "pastes")  // highlights the Pastes nav item
+renderTemplate(w, "admin_bin.html", d)
 ```
+Valid values are `"links"`, `"pastes"`, `"uploads"`, `"shorten"`. New admin pages should follow the same `base.html` + `{{define "content"}}` pattern and live under `templates/`.
 
 ### Database migrations
 Migrations run automatically in `db.Open()`. New columns are added with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. Never drop columns — the schema must remain backwards compatible with existing `data/urls.db` files on deployed instances.

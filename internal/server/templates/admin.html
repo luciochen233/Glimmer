@@ -1,197 +1,168 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Admin — Glimmer</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul>
-			<li><a href="/">Home</a></li>
-			<li>
-				<form method="post" action="/admin/logout" style="margin:0">
-					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-					<button type="submit" class="outline secondary btn-sm">Logout</button>
-				</form>
-			</li>
-		</ul>
-	</nav>
-	<div class="admin-tabs">
-		<a href="/admin" class="tab-link active">Links</a>
-		<a href="/admin/bin" class="tab-link">Pastes</a>
-		<a href="/admin/uploads" class="tab-link">Uploads</a>
-	</div>
-	<main class="container" style="max-width:960px">
+{{define "title"}}Admin — Glimmer{{end}}
+{{define "content"}}
 
-		<div class="stats-bar">
-			<div class="stats-card">
-				<span class="stats-value">{{len .AdminLinks}}</span>
-				<span class="stats-label">My Links</span>
-			</div>
-			<div class="stats-card">
-				<span class="stats-value">{{len .AnonLinks}}</span>
-				<span class="stats-label">Anonymous</span>
-			</div>
-			<div class="stats-card">
-				<span class="stats-value">{{len .TopLinks}}</span>
-				<span class="stats-label">Quick Links</span>
-			</div>
-		</div>
+<div class="page-header">
+    <div class="page-title">
+        <h1>Dashboard</h1>
+        <p>Overview of your short links and recent activity.</p>
+    </div>
+    <div class="page-actions">
+        <a href="/" class="btn btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            New Link
+        </a>
+    </div>
+</div>
 
-		{{if .TopLinks}}
-		<article>
-			<header>
-				<h3>Quick Links</h3>
-			</header>
-			<div class="tile-grid">
-				{{range .TopLinks}}
-				<a href="/{{.Slug}}" class="tile" target="_blank" rel="noopener noreferrer" title="{{.URL}}">
-					<span class="tile-slug">/{{.Slug}}</span>
-					<span class="tile-dest">{{.URL}}</span>
-					<span class="tile-clicks">{{.Clicks}} clicks</span>
-				</a>
-				{{end}}
-			</div>
-		</article>
-		{{end}}
+{{if .Success}}
+<div class="alert alert-success">{{.Success}}</div>
+{{end}}
 
-		{{if .Success}}
-		<article aria-label="success" class="alert-success">{{.Success}}</article>
-		{{end}}
+<div class="stats-bar">
+    <div class="stats-card">
+        <span class="stats-value">{{len .AdminLinks}}</span>
+        <span class="stats-label">My Links</span>
+    </div>
+    <div class="stats-card">
+        <span class="stats-value">{{len .AnonLinks}}</span>
+        <span class="stats-label">Anonymous</span>
+    </div>
+    <div class="stats-card">
+        <span class="stats-value">{{len .TopLinks}}</span>
+        <span class="stats-label">Quick Links</span>
+    </div>
+</div>
 
-		<article class="card-table">
-			<div class="section-header">
-				<hgroup>
-					<h2>My Links</h2>
-					<p>{{len .AdminLinks}} links</p>
-				</hgroup>
-				<a href="/" role="button" class="outline btn-sm">+ New Link</a>
-			</div>
-			<figure>
-			<table role="grid">
-				<thead>
-					<tr>
-						<th>Slug</th>
-						<th>Destination</th>
-						<th>Clicks</th>
-						<th>Created</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{{range .AdminLinks}}
-					<tr>
-						<td><a href="/{{.Slug}}" target="_blank">/{{.Slug}}</a></td>
-						<td title="{{.URL}}">{{.URL}}</td>
-						<td>{{.Clicks}}</td>
-						<td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
-						<td>
-							<div role="group">
-								<a href="/admin/edit/{{.ID}}" role="button" class="outline">Edit</a>
-								<button type="button" class="outline" onclick="showQR('/{{.Slug}}')">QR</button>
-								<form method="post" action="/admin/delete/{{.ID}}" onsubmit="return confirm('Delete /{{.Slug}}?')">
-									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-									<button type="submit" class="outline secondary">Del</button>
-								</form>
-							</div>
-						</td>
-					</tr>
-					{{else}}
-					<tr>
-						<td colspan="5">
-							<div class="empty-state">
-								<span class="empty-icon">&#128279;</span>
-								<p>No links yet.</p>
-								<a href="/">Create your first link</a>
-							</div>
-						</td>
-					</tr>
-					{{end}}
-				</tbody>
-			</table>
-			</figure>
-		</article>
+{{if .TopLinks}}
+<section style="margin-bottom: 2rem;">
+    <div class="section-header">
+        <div>
+            <h2 class="section-title">Quick Links</h2>
+            <p class="section-subtitle">Top 20 most-clicked links — one click to open.</p>
+        </div>
+    </div>
+    <div class="tile-grid">
+        {{range .TopLinks}}
+        <a href="/{{.Slug}}" class="tile" target="_blank" rel="noopener noreferrer" title="{{.URL}}">
+            <span class="tile-slug">/{{.Slug}}</span>
+            <span class="tile-dest" data-hostname>{{.URL}}</span>
+            <span class="tile-clicks">{{.Clicks}} clicks</span>
+        </a>
+        {{end}}
+    </div>
+</section>
+{{end}}
 
-		<article class="card-table">
-			<div class="section-header">
-				<hgroup>
-					<h2>Anonymous Links</h2>
-					<p>{{len .AnonLinks}} links</p>
-				</hgroup>
-			</div>
-			<figure>
-			<table role="grid">
-				<thead>
-					<tr>
-						<th>Slug</th>
-						<th>Destination</th>
-						<th>Clicks</th>
-						<th>Created</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{{range .AnonLinks}}
-					<tr>
-						<td><a href="/{{.Slug}}" target="_blank">/{{.Slug}}</a></td>
-						<td title="{{.URL}}">{{.URL}}</td>
-						<td>{{.Clicks}}</td>
-						<td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
-						<td>
-							<div role="group">
-								<a href="/admin/edit/{{.ID}}" role="button" class="outline">Edit</a>
-								<button type="button" class="outline" onclick="showQR('/{{.Slug}}')">QR</button>
-								<form method="post" action="/admin/delete/{{.ID}}" onsubmit="return confirm('Delete /{{.Slug}}?')">
-									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-									<button type="submit" class="outline secondary">Del</button>
-								</form>
-							</div>
-						</td>
-					</tr>
-					{{else}}
-					<tr>
-						<td colspan="5">
-							<div class="empty-state">
-								<span class="empty-icon">&#128101;</span>
-								<p>No anonymous links.</p>
-							</div>
-						</td>
-					</tr>
-					{{end}}
-				</tbody>
-			</table>
-			</figure>
-		</article>
+<section style="margin-bottom: 2rem;">
+    <div class="section-header">
+        <div>
+            <h2 class="section-title">My Links</h2>
+            <p class="section-subtitle">{{len .AdminLinks}} links created by you.</p>
+        </div>
+    </div>
+    <div class="card card-flush">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Slug</th>
+                        <th>Destination</th>
+                        <th class="col-numeric">Clicks</th>
+                        <th>Created</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .AdminLinks}}
+                    <tr>
+                        <td><a href="/{{.Slug}}" target="_blank" rel="noopener noreferrer">/{{.Slug}}</a></td>
+                        <td title="{{.URL}}"><span class="text-truncate" style="display:inline-block;max-width:340px;vertical-align:middle">{{.URL}}</span></td>
+                        <td class="col-numeric">{{.Clicks}}</td>
+                        <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                        <td class="col-actions">
+                            <div class="flex gap-1">
+                                <a href="/admin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="openQRModal('{{.Slug}}', '{{.Slug}}')">QR</button>
+                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" onsubmit="return confirm('Delete /{{.Slug}}?')">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <button type="submit" class="btn btn-danger btn-sm">Del</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                {{else}}
+                    <tr><td colspan="5">
+                        <div class="empty-state">
+                            <span class="empty-state-icon">🔗</span>
+                            <p class="empty-state-text">No links yet.</p>
+                            <a href="/" class="btn btn-primary btn-sm empty-state-action">Create your first link</a>
+                        </div>
+                    </td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
 
-	</main>
-<dialog id="qr-dialog">
-	<article>
-		<header>
-			<button aria-label="Close" rel="prev" onclick="document.getElementById('qr-dialog').close()"></button>
-			<h3>QR Code</h3>
-		</header>
-		<div id="qr-container" style="text-align:center"></div>
-	</article>
-</dialog>
+<section style="margin-bottom: 2rem;">
+    <div class="section-header">
+        <div>
+            <h2 class="section-title">Anonymous Links</h2>
+            <p class="section-subtitle">{{len .AnonLinks}} links created by unauthenticated users.</p>
+        </div>
+    </div>
+    <div class="card card-flush">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Slug</th>
+                        <th>Destination</th>
+                        <th class="col-numeric">Clicks</th>
+                        <th>Created</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .AnonLinks}}
+                    <tr>
+                        <td><a href="/{{.Slug}}" target="_blank" rel="noopener noreferrer">/{{.Slug}}</a></td>
+                        <td title="{{.URL}}"><span class="text-truncate" style="display:inline-block;max-width:340px;vertical-align:middle">{{.URL}}</span></td>
+                        <td class="col-numeric">{{.Clicks}}</td>
+                        <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                        <td class="col-actions">
+                            <div class="flex gap-1">
+                                <a href="/admin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="openQRModal('{{.Slug}}', '{{.Slug}}')">QR</button>
+                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" onsubmit="return confirm('Delete /{{.Slug}}?')">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <button type="submit" class="btn btn-danger btn-sm">Del</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                {{else}}
+                    <tr><td colspan="5">
+                        <div class="empty-state">
+                            <span class="empty-state-icon">👥</span>
+                            <p class="empty-state-text">No anonymous links.</p>
+                        </div>
+                    </td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
 <script>
-	document.querySelectorAll('.tile-dest').forEach(el => {
-		try { el.textContent = new URL(el.textContent.trim()).hostname; } catch(e) {}
-	});
-	function showQR(slug) {
-		var container = document.getElementById('qr-container');
-		container.innerHTML = '<p>Loading...</p>';
-		document.getElementById('qr-dialog').showModal();
-		fetch('/admin/qr' + slug)
-			.then(function(r) { return r.text(); })
-			.then(function(svg) {
-				container.innerHTML = svg +
-					'<p style="margin-top:0.5rem;word-break:break-all">' + location.origin + slug + '</p>';
-			});
-	}
+    // Compress URL displays to hostname for visual cleanliness
+    document.querySelectorAll('[data-hostname]').forEach(function(el) {
+        try {
+            var u = new URL(el.textContent.trim());
+            el.textContent = u.hostname + (u.pathname !== '/' ? u.pathname : '');
+        } catch (e) {}
+    });
 </script>
-</body>
-</html>
+{{end}}

@@ -1,191 +1,179 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-	<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Uploads — Admin</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul>
-			<li><a href="/">Home</a></li>
-			<li>
-				<form method="post" action="/admin/logout" style="margin:0">
-					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-					<button type="submit" class="outline secondary btn-sm">Logout</button>
-				</form>
-			</li>
-		</ul>
-	</nav>
-	<div class="admin-tabs">
-		<a href="/admin" class="tab-link">Links</a>
-		<a href="/admin/bin" class="tab-link">Pastes</a>
-		<a href="/admin/uploads" class="tab-link active">Uploads</a>
-	</div>
-	<main class="container" style="max-width:960px">
-		{{if .Error}}
-		<article aria-label="error" class="alert-error">{{.Error}}</article>
-		{{end}}
+{{define "title"}}Uploads — Admin{{end}}
+{{define "content"}}
 
-		<article class="card-table">
-			<div class="section-header">
-				<hgroup>
-					<h2>Uploads</h2>
-					<p>{{len .Uploads}} files</p>
-				</hgroup>
-				<div class="upload-controls">
-					<button type="button" id="upload-img-btn" class="btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">Upload Image <small style="opacity:.7">(50 MB)</small></button>
-					<button type="button" id="upload-file-btn" class="btn-sm outline" title="Any file type — up to 5 MB">Upload File <small style="opacity:.7">(5 MB)</small></button>
-					<input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
-					<input type="file" id="file-input" style="display:none">
-					<small id="upload-status"></small>
-				</div>
-			</div>
-			<figure>
-			<table role="grid">
-				<thead>
-					<tr>
-						<th>Preview</th>
-						<th>File</th>
-						<th>Size</th>
-						<th>Dimensions</th>
-						<th>Uploaded</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{{range .Uploads}}
-					<tr>
-						<td>
-							{{if .IsImage}}<a href="{{.URL}}" target="_blank"><img src="{{.URL}}" style="max-width:72px;max-height:52px;object-fit:contain;border-radius:4px"></a>
-							{{else}}<a href="{{.URL}}" target="_blank" style="font-size:1.5rem" title="Download file">&#128196;</a>
-							{{end}}
-						</td>
-						<td>
-							<div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
-								<span class="ext-chip">{{.Ext}}</span>
-								{{if .OriginalName}}<span style="font-size:0.85rem">{{.OriginalName}}</span>{{end}}
-							</div>
-							<code style="font-size:0.7rem;opacity:.6">{{.Filename}}</code>
-						</td>
-						<td id="size-{{.Filename}}">{{.SizeHuman}}</td>
-						<td id="dim-{{.Filename}}">{{if .Width}}{{.Width}}&times;{{.Height}}{{else}}&mdash;{{end}}</td>
-						<td>{{.ModTime.Format "2006-01-02 15:04"}}</td>
-						<td>
-							<div role="group">
-								<button type="button" class="outline btn-sm" onclick="copyMarkdown('{{.Filename}}', {{.IsImage}}, {{.OriginalName}}, this)">Copy</button>
-								{{if .CanResize}}<button type="button" class="outline btn-sm" onclick="openResize('{{.Filename}}', {{.Width}}, {{.Height}})">Resize</button>{{end}}
-								<form method="post" action="/admin/uploads/delete/{{.Filename}}" onsubmit="return confirm('Delete this file?')" style="margin:0">
-									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-									<button type="submit" class="outline secondary btn-sm">Del</button>
-								</form>
-							</div>
-						</td>
-					</tr>
-					{{else}}
-					<tr>
-						<td colspan="6">
-							<div class="empty-state">
-								<span class="empty-icon">&#128196;</span>
-								<p>No uploads yet. Use the buttons above to upload an image or file.</p>
-							</div>
-						</td>
-					</tr>
-					{{end}}
-				</tbody>
-			</table>
-			</figure>
-		</article>
-	</main>
+<div class="page-header">
+    <div class="page-title">
+        <h1>Uploads</h1>
+        <p>Manage your uploaded images and files. Use them in pastes via the markdown link.</p>
+    </div>
+    <div class="page-actions">
+        <a href="/admin/bin" class="btn btn-secondary">Back to pastes</a>
+    </div>
+</div>
 
-	<dialog id="resize-dialog">
-		<article>
-			<header>
-				<button aria-label="Close" rel="prev" onclick="document.getElementById('resize-dialog').close()"></button>
-				<h3>Resize Image</h3>
-			</header>
-			<p id="resize-current" style="color:var(--pico-muted-color)"></p>
-			<label>
-				Max dimension (px)
-				<input type="number" id="resize-dim" value="1200" min="64" max="8192" step="1">
-			</label>
-			<small id="resize-status" style="color:var(--pico-muted-color)"></small>
-			<footer>
-				<button type="button" class="secondary outline" onclick="document.getElementById('resize-dialog').close()">Cancel</button>
-				<button type="button" id="resize-confirm">Resize</button>
-			</footer>
-		</article>
-	</dialog>
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{end}}
+
+<div class="card card-flush">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">All uploads</h2>
+            <p class="card-subtitle">{{len .Uploads}} file{{if ne (len .Uploads) 1}}s{{end}} stored locally.</p>
+        </div>
+        <div class="upload-controls">
+            <button type="button" id="upload-img-btn" class="btn btn-primary btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                Upload Image <small style="opacity:.6">(50 MB)</small>
+            </button>
+            <button type="button" id="upload-file-btn" class="btn btn-secondary btn-sm" title="Any file type — up to 5 MB">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+                Upload File <small style="opacity:.6">(5 MB)</small>
+            </button>
+            <input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+            <input type="file" id="file-input" style="display:none">
+            <small id="upload-status" class="upload-status"></small>
+        </div>
+    </div>
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 90px;">Preview</th>
+                    <th>File</th>
+                    <th>Size</th>
+                    <th>Dimensions</th>
+                    <th>Uploaded</th>
+                    <th class="col-actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {{range .Uploads}}
+                <tr>
+                    <td>
+                        {{if .IsImage}}
+                            <a href="{{.URL}}" target="_blank" rel="noopener noreferrer">
+                                <img src="{{.URL}}" style="max-width:72px; max-height:52px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border)" alt="">
+                            </a>
+                        {{else}}
+                            <a href="{{.URL}}" target="_blank" rel="noopener noreferrer" style="font-size:1.5rem; text-decoration:none" title="Download file">📄</a>
+                        {{end}}
+                    </td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                            <span class="ext-chip">{{.Ext}}</span>
+                            {{if .OriginalName}}<span style="font-size:0.9rem">{{.OriginalName}}</span>{{end}}
+                        </div>
+                        <code style="font-size:0.7rem; opacity:.6; display:block; margin-top:0.2rem;">{{.Filename}}</code>
+                    </td>
+                    <td id="size-{{.Filename}}">{{.SizeHuman}}</td>
+                    <td id="dim-{{.Filename}}">{{if .Width}}{{.Width}}&times;{{.Height}}{{else}}—{{end}}</td>
+                    <td>{{.ModTime.Format "2006-01-02 15:04"}}</td>
+                    <td class="col-actions">
+                        <div class="flex gap-1">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="copyMarkdown('{{.Filename}}', {{.IsImage}}, '{{.OriginalName}}', this)">Copy</button>
+                            {{if .CanResize}}<button type="button" class="btn btn-secondary btn-sm" onclick="openResize('{{.Filename}}', {{.Width}}, {{.Height}})">Resize</button>{{end}}
+                            <form method="post" action="/admin/uploads/delete/{{.Filename}}" style="display:inline" onsubmit="return confirm('Delete this file?')">
+                                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                <button type="submit" class="btn btn-danger btn-sm">Del</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {{else}}
+                <tr><td colspan="6">
+                    <div class="empty-state">
+                        <span class="empty-state-icon">📄</span>
+                        <p class="empty-state-text">No uploads yet. Use the buttons above to upload an image or file.</p>
+                    </div>
+                </td></tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<dialog id="resize-dialog">
+    <article>
+        <header>
+            <button aria-label="Close" onclick="document.getElementById('resize-dialog').close()"></button>
+            <h3>Resize Image</h3>
+        </header>
+        <p id="resize-current" class="text-muted" style="margin-bottom: 1rem;"></p>
+        <label class="form-label" for="resize-dim">Max dimension (px)</label>
+        <input type="number" id="resize-dim" value="1200" min="64" max="8192" step="1">
+        <small id="resize-status" class="text-muted" style="display:block; margin-top:0.5rem;"></small>
+        <footer>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('resize-dialog').close()">Cancel</button>
+            <button type="button" id="resize-confirm" class="btn btn-primary">Resize</button>
+        </footer>
+    </article>
+</dialog>
 
 <script src="/static/upload.js"></script>
 <script>
-	var currentResizeFile = '';
+    var currentResizeFile = '';
 
-	function copyMarkdown(filename, isImage, originalName, btn) {
-		var url = '/uploads/' + filename;
-		var label = originalName || filename;
-		var md = isImage ? '![](' + url + ')' : '[' + label + '](' + url + ')';
-		navigator.clipboard.writeText(md).then(function() {
-			var orig = btn.textContent;
-			btn.textContent = 'Copied!';
-			setTimeout(function() { btn.textContent = orig; }, 1500);
-		});
-	}
+    function copyMarkdown(filename, isImage, originalName, btn) {
+        var url = '/uploads/' + filename;
+        var label = originalName || filename;
+        var md = isImage ? '![](' + url + ')' : '[' + label + '](' + url + ')';
+        var orig = btn.textContent;
+        navigator.clipboard.writeText(md).then(function() {
+            btn.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = orig; }, 1500);
+        });
+    }
 
-	function openResize(filename, w, h) {
-		currentResizeFile = filename;
-		document.getElementById('resize-current').textContent = 'Current: ' + w + '×' + h;
-		document.getElementById('resize-status').textContent = '';
-		document.getElementById('resize-confirm').disabled = false;
-		document.getElementById('resize-dialog').showModal();
-	}
+    function openResize(filename, w, h) {
+        currentResizeFile = filename;
+        document.getElementById('resize-current').textContent = 'Current: ' + w + '×' + h;
+        document.getElementById('resize-status').textContent = '';
+        document.getElementById('resize-confirm').disabled = false;
+        document.getElementById('resize-dialog').showModal();
+    }
 
-	document.getElementById('resize-confirm').addEventListener('click', function() {
-		var dim = document.getElementById('resize-dim').value;
-		var status = document.getElementById('resize-status');
-		var btn = this;
-		status.textContent = 'Resizing…';
-		btn.disabled = true;
+    document.getElementById('resize-confirm').addEventListener('click', function() {
+        var dim = document.getElementById('resize-dim').value;
+        var status = document.getElementById('resize-status');
+        var btn = this;
+        status.textContent = 'Resizing…';
+        btn.disabled = true;
 
-		var fd = new FormData();
-		fd.append('csrf_token', window.GlimmerUpload.getCsrfToken());
-		fd.append('max_dim', dim);
+        var fd = new FormData();
+        fd.append('csrf_token', window.GlimmerUpload.getCsrfToken());
+        fd.append('max_dim', dim);
 
-		fetch('/admin/uploads/resize/' + currentResizeFile, { method: 'POST', body: fd, credentials: 'same-origin' })
-			.then(function(r) { return r.json(); })
-			.then(function(data) {
-				btn.disabled = false;
-				if (data.error) {
-					status.textContent = 'Error: ' + data.error;
-					return;
-				}
-				var sizeEl = document.getElementById('size-' + currentResizeFile);
-				var dimEl = document.getElementById('dim-' + currentResizeFile);
-				if (sizeEl) sizeEl.textContent = data.size_human;
-				if (dimEl) dimEl.textContent = data.width + '×' + data.height;
-				status.textContent = 'Done — ' + data.size_human;
-				var imgs = document.querySelectorAll('img[src="/uploads/' + currentResizeFile + '"]');
-				imgs.forEach(function(img) { img.src = '/uploads/' + currentResizeFile + '?t=' + Date.now(); });
-			})
-			.catch(function() {
-				btn.disabled = false;
-				status.textContent = 'Failed';
-			});
-	});
+        fetch('/admin/uploads/resize/' + currentResizeFile, { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                btn.disabled = false;
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    return;
+                }
+                var sizeEl = document.getElementById('size-' + currentResizeFile);
+                var dimEl = document.getElementById('dim-' + currentResizeFile);
+                if (sizeEl) sizeEl.textContent = data.size_human;
+                if (dimEl) dimEl.textContent = data.width + '×' + data.height;
+                status.textContent = 'Done — ' + data.size_human;
+                var imgs = document.querySelectorAll('img[src="/uploads/' + currentResizeFile + '"]');
+                imgs.forEach(function(img) { img.src = '/uploads/' + currentResizeFile + '?t=' + Date.now(); });
+            })
+            .catch(function() {
+                btn.disabled = false;
+                status.textContent = 'Failed';
+            });
+    });
 
-	window.GlimmerUpload.init({
-		imgBtn:    document.getElementById('upload-img-btn'),
-		fileBtn:   document.getElementById('upload-file-btn'),
-		imgInput:  document.getElementById('img-input'),
-		fileInput: document.getElementById('file-input'),
-		statusEl:  document.getElementById('upload-status'),
-		maxImageMB: {{.UploadMaxMB}},
-		onUploaded: function() { location.reload(); }
-	});
+    window.GlimmerUpload.init({
+        imgBtn:    document.getElementById('upload-img-btn'),
+        fileBtn:   document.getElementById('upload-file-btn'),
+        imgInput:  document.getElementById('img-input'),
+        fileInput: document.getElementById('file-input'),
+        statusEl:  document.getElementById('upload-status'),
+        maxImageMB: {{.UploadMaxMB}},
+        onUploaded: function() { location.reload(); }
+    });
 </script>
-</body>
-</html>
+{{end}}

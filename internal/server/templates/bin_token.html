@@ -1,43 +1,34 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Access Token Required — Glimmer</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul><li><a href="/">Home</a></li></ul>
-	</nav>
-	<main class="container" style="max-width:480px;padding-top:4rem;text-align:center">
-		<p style="font-size:4rem;line-height:1;margin:0">&#128274;</p>
-		<h2 style="margin-top:0.5rem">Access Token Required</h2>
-		<p style="color:var(--pico-muted-color)">This paste is protected. Enter the access token to view it.</p>
+{{define "title"}}Access Token Required — Glimmer{{end}}
+{{define "content"}}
+<div style="max-width: 480px; margin: 4rem auto 0;">
 
-		{{if .Error}}
-		<article aria-label="error" class="alert-error" style="text-align:left">{{.Error}}</article>
-		{{end}}
+    <div class="card" style="text-align: center; padding: 2.5rem 2rem;">
+        <div style="font-size: 3.5rem; line-height: 1; margin-bottom: 0.5rem;">🔒</div>
+        <h2 style="font-size: 1.5rem;">Access Token Required</h2>
+        <p class="text-muted" style="margin-bottom: 1.5rem;">This paste is protected. Enter the access token to view it.</p>
 
-		<form id="token-form" style="text-align:left;margin-top:1.5rem">
-			<label>
-				Token
-				<input type="text" id="token-input" required placeholder="Enter access token" autofocus>
-			</label>
-			<button type="submit" style="width:100%">View Paste</button>
-		</form>
-	</main>
+        {{if .Error}}
+        <div class="alert alert-error" style="text-align: left;">{{.Error}}</div>
+        {{end}}
+
+        <form id="token-form" style="text-align: left;">
+            <div class="form-group">
+                <label for="token-input" class="form-label">Token</label>
+                <input type="text" id="token-input" placeholder="Enter access token" required autofocus>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg btn-block">View Paste</button>
+        </form>
+    </div>
+
+</div>
+
 <script>
-	document.getElementById('token-form').addEventListener('submit', function(e) {
-		e.preventDefault();
-		var token = document.getElementById('token-input').value.trim();
-		if (token) {
-			window.location.href = window.location.pathname + '/' + encodeURIComponent(token);
-		}
-	});
+    document.getElementById('token-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var token = document.getElementById('token-input').value.trim();
+        if (token) {
+            window.location.href = window.location.pathname + '/' + encodeURIComponent(token);
+        }
+    });
 </script>
-</body>
-</html>
+{{end}}

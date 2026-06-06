@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {{with .Paste}}<title>{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}} — Glimmer Paste</title>{{end}}
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* Strip the page chrome when embedded — no header/toolbar/card wrapper */
+        body { padding: 1.5rem; }
+        .embed-wrap { max-width: 820px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div class="embed-wrap">
+        {{with .Paste}}
+        <div class="paste-body">
+            {{$.PasteBody}}
+        </div>
+        {{end}}
+    </div>
+</body>
+</html>

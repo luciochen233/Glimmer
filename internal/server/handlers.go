@@ -53,6 +53,7 @@ type pageData struct {
 	PasteBody   template.HTML
 	Uploads     any
 	LoggedIn    bool
+	ActiveNav   string // "links" | "pastes" | "uploads" | "shorten" — for sidebar highlight
 	CSRFToken   string
 	UploadMaxMB int64
 }
@@ -344,10 +345,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) adminPage(w http.ResponseWriter, r *http.Request) pageData {
+func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, nav string) pageData {
 	return pageData{
 		BaseURL:     s.baseURL(r),
 		LoggedIn:    true,
+		ActiveNav:   nav,
 		CSRFToken:   csrfToken(w, r),
 		UploadMaxMB: s.cfg.Upload.MaxSize,
 	}
@@ -367,7 +369,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	topLinks, _ := s.db.TopLinks("admin", 20)
 
-	d := s.adminPage(w, r)
+	d := s.adminPage(w, r, "links")
 	d.AdminLinks = adminLinks
 	d.AnonLinks = anonLinks
 	d.TopLinks = topLinks
@@ -391,7 +393,7 @@ func (s *Server) handleAdminEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d := s.adminPage(w, r)
+	d := s.adminPage(w, r, "links")
 	d.Link = link
 	renderTemplate(w, "admin_edit.html", d)
 }
@@ -408,7 +410,7 @@ func (s *Server) handleAdminEditSave(w http.ResponseWriter, r *http.Request) {
 
 	renderEditErr := func(msg string) {
 		link, _ := s.db.GetByID(id)
-		d := s.adminPage(w, r)
+		d := s.adminPage(w, r, "links")
 		d.Link = link
 		d.Error = msg
 		renderTemplate(w, "admin_edit.html", d)
@@ -531,6 +533,17 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 		body = template.HTML("<pre><code>" + template.HTMLEscapeString(paste.Content) + "</code></pre>")
 	}
 
+	// Embed view — used by admin paste preview iframe; strips the page chrome
+	// (sidebar / public header / toolbar / card wrapper) so only the paste body renders.
+	if r.URL.Query().Get("embed") == "1" {
+		renderTemplate(w, "bin_view_embed.html", pageData{
+			BaseURL:   s.baseURL(r),
+			Paste:     paste,
+			PasteBody: body,
+		})
+		return
+	}
+
 	renderTemplate(w, "bin_view.html", pageData{
 		BaseURL:   s.baseURL(r),
 		Paste:     paste,
@@ -553,13 +566,13 @@ func (s *Server) handleAdminBin(w http.ResponseWriter, r *http.Request) {
 			ThumbURL: thumbURLFor(firstPasteImage(p.Content)),
 		})
 	}
-	d := s.adminPage(w, r)
+	d := s.adminPage(w, r, "pastes")
 	d.Pastes = cards
 	renderTemplate(w, "admin_bin.html", d)
 }
 
 func (s *Server) handleAdminBinNew(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "admin_bin_edit.html", s.adminPage(w, r))
+	renderTemplate(w, "admin_bin_edit.html", s.adminPage(w, r, "pastes"))
 }
 
 func (s *Server) handleAdminBinCreate(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +587,7 @@ func (s *Server) handleAdminBinCreate(w http.ResponseWriter, r *http.Request) {
 	hidden := r.FormValue("hidden") == "1"
 
 	newErrPage := func(msg string) {
-		d := s.adminPage(w, r)
+		d := s.adminPage(w, r, "pastes")
 		d.Error = msg
 		renderTemplate(w, "admin_bin_edit.html", d)
 	}
@@ -635,7 +648,7 @@ func (s *Server) handleAdminBinEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-	d := s.adminPage(w, r)
+	d := s.adminPage(w, r, "pastes")
 	d.Paste = paste
 	renderTemplate(w, "admin_bin_edit.html", d)
 }
@@ -663,7 +676,7 @@ func (s *Server) handleAdminBinSave(w http.ResponseWriter, r *http.Request) {
 	hidden := r.FormValue("hidden") == "1"
 
 	editErrPage := func(msg string) {
-		d := s.adminPage(w, r)
+		d := s.adminPage(w, r, "pastes")
 		d.Paste = paste
 		d.Error = msg
 		renderTemplate(w, "admin_bin_edit.html", d)
@@ -1035,7 +1048,7 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 		return uploads[i].ModTime.After(uploads[j].ModTime)
 	})
 
-	d := s.adminPage(w, r)
+	d := s.adminPage(w, r, "uploads")
 	d.Uploads = uploads
 	renderTemplate(w, "admin_uploads.html", d)
 }

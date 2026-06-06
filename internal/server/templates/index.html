@@ -1,64 +1,71 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Glimmer</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul><li>{{if .LoggedIn}}<a href="/admin">Admin</a>{{else}}<a href="/admin/login">Admin</a>{{end}}</li></ul>
-	</nav>
-	<main class="container">
-		<hgroup>
-			<h2>Shorten a URL</h2>
-			<p>Paste a long URL and get a short link</p>
-		</hgroup>
+{{define "title"}}Glimmer{{end}}
+{{define "content"}}
+<div style="max-width: 640px; margin: 1.5rem auto 0;">
 
-		{{if .Error}}
-		<article aria-label="error" style="border-left: 4px solid var(--pico-del-color); padding: 0.75rem 1rem;">
-			{{.Error}}
-		</article>
-		{{end}}
+    <div class="card" style="text-align: center; padding: 2.5rem 2rem;">
+        <div class="brand" style="justify-content: center; margin-bottom: 1rem;">
+            <div class="brand-logo">G</div>
+            <span class="brand-name">Glimmer</span>
+        </div>
+        <h1 style="font-size: 1.75rem; margin-bottom: 0.5rem;">Shorten a URL</h1>
+        <p class="text-muted" style="margin-bottom: 2rem;">Paste a long URL and get a short link.</p>
 
-		{{if .ShortURL}}
-		<article aria-label="success">
-			<p>Your short link is ready:</p>
-			<p><small>{{.OriginalURL}}</small></p>
-			<div class="result-box">
-				<code id="short-url">{{.ShortURL}}</code>
-				<button onclick="navigator.clipboard.writeText(document.getElementById('short-url').textContent).then(()=>{this.textContent='Copied!'})">Copy</button>
-			</div>
-			{{if .QRSVG}}
-			<div style="text-align:center; margin-top:1rem;">{{.QRSVG}}</div>
-			{{end}}
-		</article>
-		{{end}}
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
 
-		<form method="post" action="/shorten" id="shorten-form">
-			<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-			<label for="url">URL to shorten</label>
-			<input type="text" inputmode="url" id="url" name="url" placeholder="https://example.com/very/long/url" required>
+        {{if .ShortURL}}
+        <div class="alert alert-success" style="text-align:left;">
+            <div style="flex-grow: 1;">
+                <strong>Your short link is ready.</strong>
+                <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.25rem; word-break: break-all;">{{.OriginalURL}}</p>
+            </div>
+        </div>
+        <div class="result-box">
+            <code id="short-url">{{.ShortURL}}</code>
+            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('short-url').textContent, this)">Copy</button>
+        </div>
+        {{if .QRSVG}}
+        <div class="qr-display">{{.QRSVG}}</div>
+        {{end}}
+        {{end}}
 
-			{{if .LoggedIn}}
-			<label for="slug">Custom slug <small>(optional)</small></label>
-			<input type="text" id="slug" name="slug" placeholder="my-link" pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
-			{{end}}
+        <form method="post" action="/shorten" id="shorten-form" style="text-align: left;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
-			<button type="submit">Shorten</button>
-		</form>
-		<script>
-			document.getElementById('shorten-form').addEventListener('submit', function() {
-				const input = document.getElementById('url');
-				if (input.value && !input.value.includes('://')) {
-					input.value = 'https://' + input.value;
-				}
-			});
-		</script>
-	</main>
-</body>
-</html>
+            <div class="form-group">
+                <label for="url" class="form-label">URL to shorten</label>
+                <input type="text" inputmode="url" id="url" name="url" placeholder="https://example.com/very/long/url" required>
+            </div>
+
+            {{if .LoggedIn}}
+            <div class="form-group">
+                <label for="slug" class="form-label">Custom slug <small class="text-muted">(optional)</small></label>
+                <input type="text" id="slug" name="slug" placeholder="my-link" pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
+                <small class="form-help">Leave blank to auto-generate a 3-character slug.</small>
+            </div>
+            {{end}}
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block">Shorten</button>
+        </form>
+    </div>
+
+</div>
+
+<script>
+    document.getElementById('shorten-form').addEventListener('submit', function() {
+        var input = document.getElementById('url');
+        if (input.value && input.value.indexOf('://') === -1) {
+            input.value = 'https://' + input.value;
+        }
+    });
+
+    function copyToClipboard(text, btn) {
+        var orig = btn.textContent;
+        navigator.clipboard.writeText(text).then(function() {
+            btn.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = orig; }, 1500);
+        });
+    }
+</script>
+{{end}}

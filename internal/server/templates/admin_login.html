@@ -1,44 +1,43 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Admin Login — Glimmer</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
+    <title>Admin Login — Glimmer</title>
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul><li><a href="/">Home</a></li></ul>
-	</nav>
-	<main>
-		<div class="login-wrap">
-			<article class="login-card">
-				<header>
-					<hgroup>
-						<h2>Admin Login</h2>
-						<p>Sign in to manage your links</p>
-					</hgroup>
-				</header>
+<body class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="brand">
+                <div class="brand-logo">G</div>
+                <span class="brand-name">Glimmer</span>
+            </div>
+            <h2>Admin Login</h2>
+            <p>Sign in to manage your links</p>
+        </div>
 
-				{{if .Error}}
-				<article aria-label="error" class="alert-error">{{.Error}}</article>
-				{{end}}
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
 
-				<form method="post" action="/admin/login">
-					<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-					<label for="username">Username</label>
-					<input type="text" id="username" name="username" required autofocus>
+        <form action="/admin/login" method="POST">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
-					<label for="password">Password</label>
-					<input type="password" id="password" name="password" required>
+            <div class="form-group">
+                <label for="username" class="form-label">Username</label>
+                <input type="text" id="username" name="username" placeholder="admin" required autofocus>
+            </div>
 
-					<button type="submit">Log in</button>
-				</form>
-			</article>
-		</div>
-	</main>
+            <div class="form-group" style="margin-bottom: 1.75rem;">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block">Log in</button>
+        </form>
+    </div>
 </body>
 </html>

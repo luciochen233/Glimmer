@@ -1,193 +1,194 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>{{if .Paste}}Edit Paste{{else}}New Paste{{end}} — Admin</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul>
-			<li><a href="/">Home</a></li>
-			<li>
-				<form method="post" action="/admin/logout" style="margin:0">
-					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-					<button type="submit" class="outline secondary btn-sm">Logout</button>
-				</form>
-			</li>
-		</ul>
-	</nav>
-	<div class="admin-tabs">
-		<a href="/admin" class="tab-link">Links</a>
-		<a href="/admin/bin" class="tab-link active">Pastes</a>
-		<a href="/admin/uploads" class="tab-link">Uploads</a>
-	</div>
-	<main class="container" style="max-width:860px">
-		<article>
-		<header>
-			<h2>{{if .Paste}}Edit Paste{{else}}New Paste{{end}}</h2>
-		</header>
+{{define "title"}}{{if .Paste}}Edit Paste{{else}}New Paste{{end}} — Admin{{end}}
+{{define "content"}}
 
-		{{if .Error}}
-		<article aria-label="error" class="alert-error">{{.Error}}</article>
-		{{end}}
+<div class="page-header">
+    <div class="page-title">
+        <h1>{{if .Paste}}Edit Paste{{else}}New Paste{{end}}</h1>
+        <p>{{if .Paste}}Update the content and access settings.{{else}}Write a new paste — Markdown or plain text, optionally token-protected.{{end}}</p>
+    </div>
+    <div class="page-actions">
+        <a href="/admin/bin" class="btn btn-secondary">Back to pastes</a>
+    </div>
+</div>
 
-		{{if .Paste}}
-		{{with .Paste}}
-		<form method="post" action="/admin/bin/edit/{{.ID}}">
-		{{else}}{{end}}
-		{{else}}
-		<form method="post" action="/admin/bin/new">
-		{{end}}
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{end}}
 
-			<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-			<div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;">
-				<label>
-					Name <small>(URL slug)</small>
-					{{if .Paste}}
-					{{with .Paste}}<input type="text" name="name" value="{{.Name}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores">{{end}}
-					{{else}}
-					<input type="text" name="name" required pattern="[a-zA-Z0-9_-]+" placeholder="my-script" title="Letters, numbers, hyphens, underscores">
-					{{end}}
-				</label>
-				<label>
-					Title <small>(optional)</small>
-					{{if .Paste}}
-					{{with .Paste}}<input type="text" name="title" value="{{.Title}}" placeholder="A short description">{{end}}
-					{{else}}
-					<input type="text" name="title" placeholder="A short description">
-					{{end}}
-				</label>
-			</div>
+<div class="card">
+    {{if .Paste}}
+    {{with .Paste}}<form method="post" action="/admin/bin/edit/{{.ID}}">{{else}}{{end}}
+    {{else}}
+    <form method="post" action="/admin/bin/new">
+    {{end}}
 
-			<label>Format
-				<select name="format">
-					{{if .Paste}}
-					{{with .Paste}}
-					<option value="markdown"{{if eq .Format "markdown"}} selected{{end}}>Markdown</option>
-					<option value="text"{{if eq .Format "text"}} selected{{end}}>Plain text</option>
-					{{end}}
-					{{else}}
-					<option value="markdown" selected>Markdown</option>
-					<option value="text">Plain text</option>
-					{{end}}
-				</select>
-			</label>
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
 
-			<label>Content</label>
-			<div class="upload-controls">
-				<button type="button" id="upload-img-btn" class="outline secondary" title="PNG, JPEG, GIF, WebP — up to 50 MB">Upload Image <small style="opacity:.7">(50 MB)</small></button>
-				<button type="button" id="upload-file-btn" class="outline secondary" title="Any file type — up to 5 MB">Upload File <small style="opacity:.7">(5 MB)</small></button>
-				<input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
-				<input type="file" id="file-input" style="display:none">
-				<small id="upload-status"></small>
-			</div>
-			{{if .Paste}}
-			{{with .Paste}}<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem">{{.Content}}</textarea>{{end}}
-			{{else}}
-			<textarea name="content" rows="20" style="font-family:monospace;font-size:0.9rem" placeholder="# Hello&#10;&#10;Write your markdown here..."></textarea>
-			{{end}}
+        <div class="form-row">
+            <div class="form-group">
+                <label for="name" class="form-label">Name <small class="text-muted">(URL slug)</small></label>
+                {{if .Paste}}
+                {{with .Paste}}<input type="text" id="name" name="name" value="{{.Name}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores">{{end}}
+                {{else}}
+                <input type="text" id="name" name="name" required pattern="[a-zA-Z0-9_-]+" placeholder="my-script" title="Letters, numbers, hyphens, underscores">
+                {{end}}
+                <small class="form-help">Path: <code>/bin/<span id="name-preview">{{if .Paste}}{{with .Paste}}{{.Name}}{{end}}{{else}}...{{end}}</span></code></small>
+            </div>
 
-			<fieldset>
-				<legend>Access Token</legend>
-				{{if .Paste}}
-				{{with .Paste}}
-				{{if .Token}}
-				<p>Current token: <code>{{.Token}}</code> &mdash; URL: <code>/bin/{{.Name}}/{{.Token}}</code></p>
-				<label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep current token</label>
-				<label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Regenerate token</label>
-				<label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
-				<label><input type="radio" name="token_action" value="disable" onchange="toggleCustomToken()"> Disable token (public access)</label>
-				{{else}}
-				<p>Token is currently <strong>disabled</strong> — paste is publicly accessible.</p>
-				<label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep disabled</label>
-				<label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Enable with new token</label>
-				<label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
-				{{end}}
-				<div id="custom-token-wrap" style="display:none;margin-left:2rem">
-					<input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
-				</div>
-				<label style="margin-top:0.5rem">
-					<input type="checkbox" name="hidden" value="1" {{if .Hidden}}checked{{end}}>
-					Hide paste (return 404 if accessed without token)
-				</label>
-				{{end}}
-				{{else}}
-				<label><input type="radio" name="enable_token" value="0" checked onchange="toggleCustomToken()"> No token (public access)</label>
-				<label><input type="radio" name="enable_token" value="1" onchange="toggleCustomToken()"> Generate access token</label>
-				<label><input type="radio" name="enable_token" value="custom" onchange="toggleCustomToken()"> Custom token</label>
-				<div id="custom-token-wrap" style="display:none;margin-left:2rem">
-					<input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
-				</div>
-				<label style="margin-top:0.5rem">
-					<input type="checkbox" name="hidden" value="1">
-					Hide paste (return 404 if accessed without token)
-				</label>
-				{{end}}
-			</fieldset>
+            <div class="form-group">
+                <label for="title" class="form-label">Title <small class="text-muted">(optional)</small></label>
+                {{if .Paste}}
+                {{with .Paste}}<input type="text" id="title" name="title" value="{{.Title}}" placeholder="A short description">{{end}}
+                {{else}}
+                <input type="text" id="title" name="title" placeholder="A short description">
+                {{end}}
+            </div>
+        </div>
 
-			<div role="group" style="margin-top:1rem">
-				<button type="submit">Save</button>
-				<a href="/admin/bin" role="button" class="outline secondary">Cancel</a>
-			</div>
+        <div class="form-group">
+            <label for="format" class="form-label">Format</label>
+            <select id="format" name="format">
+                {{if .Paste}}
+                {{with .Paste}}
+                <option value="markdown"{{if eq .Format "markdown"}} selected{{end}}>Markdown</option>
+                <option value="text"{{if eq .Format "text"}} selected{{end}}>Plain text</option>
+                {{end}}
+                {{else}}
+                <option value="markdown" selected>Markdown</option>
+                <option value="text">Plain text</option>
+                {{end}}
+            </select>
+        </div>
 
-		</form>
-		{{if .Paste}}{{with .Paste}}{{end}}{{end}}
-		</article>
-	</main>
+        <div class="form-group">
+            <label for="content" class="form-label">Content</label>
+            <div class="upload-controls" style="margin-bottom: 0.5rem;">
+                <button type="button" id="upload-img-btn" class="btn btn-secondary btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                    Upload Image
+                </button>
+                <button type="button" id="upload-file-btn" class="btn btn-secondary btn-sm" title="Any file type — up to 5 MB">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+                    Upload File
+                </button>
+                <input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+                <input type="file" id="file-input" style="display:none">
+                <small id="upload-status" class="upload-status"></small>
+            </div>
+            {{if .Paste}}
+            {{with .Paste}}<textarea id="content" name="content" rows="20">{{.Content}}</textarea>{{end}}
+            {{else}}
+            <textarea id="content" name="content" rows="20" placeholder="# Hello&#10;&#10;Write your markdown here..."></textarea>
+            {{end}}
+        </div>
+
+        <fieldset>
+            <legend>Access Token</legend>
+            {{if .Paste}}
+            {{with .Paste}}
+            {{if .Token}}
+            <p class="text-muted" style="margin-bottom: 0.75rem;">
+                Current token: <code>{{.Token}}</code> — URL: <code>/bin/{{.Name}}/{{.Token}}</code>
+            </p>
+            <label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep current token</label>
+            <label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Regenerate token</label>
+            <label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
+            <label><input type="radio" name="token_action" value="disable" onchange="toggleCustomToken()"> Disable token (public access)</label>
+            {{else}}
+            <p class="text-muted" style="margin-bottom: 0.75rem;">Token is currently <strong>disabled</strong> — paste is publicly accessible.</p>
+            <label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep disabled</label>
+            <label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Enable with new token</label>
+            <label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
+            {{end}}
+            <div id="custom-token-wrap" style="display:none; margin: 0.5rem 0 0.5rem 1.5rem;">
+                <input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
+            </div>
+            <label style="margin-top: 0.5rem;">
+                <input type="checkbox" name="hidden" value="1" {{if .Hidden}}checked{{end}}>
+                Hide paste (return 404 if accessed without token)
+            </label>
+            {{end}}
+            {{else}}
+            <label><input type="radio" name="enable_token" value="0" checked onchange="toggleCustomToken()"> No token (public access)</label>
+            <label><input type="radio" name="enable_token" value="1" onchange="toggleCustomToken()"> Generate access token</label>
+            <label><input type="radio" name="enable_token" value="custom" onchange="toggleCustomToken()"> Custom token</label>
+            <div id="custom-token-wrap" style="display:none; margin: 0.5rem 0 0.5rem 1.5rem;">
+                <input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
+            </div>
+            <label style="margin-top: 0.5rem;">
+                <input type="checkbox" name="hidden" value="1">
+                Hide paste (return 404 if accessed without token)
+            </label>
+            {{end}}
+        </fieldset>
+
+        <div class="flex gap-1" style="margin-top: 1.5rem;">
+            <button type="submit" class="btn btn-primary btn-lg">Save paste</button>
+            <a href="/admin/bin" class="btn btn-secondary btn-lg">Cancel</a>
+        </div>
+    </form>
+    {{if .Paste}}{{with .Paste}}{{end}}{{end}}
+</div>
+
 <script src="/static/upload.js"></script>
 <script>
-	function toggleCustomToken() {
-		var wrap = document.getElementById('custom-token-wrap');
-		if (!wrap) return;
-		var checked = document.querySelector('input[name="token_action"][value="custom"]:checked') ||
-		              document.querySelector('input[name="enable_token"][value="custom"]:checked');
-		wrap.style.display = checked ? 'block' : 'none';
-	}
+    function toggleCustomToken() {
+        var wrap = document.getElementById('custom-token-wrap');
+        if (!wrap) return;
+        var checked = document.querySelector('input[name="token_action"][value="custom"]:checked') ||
+                      document.querySelector('input[name="enable_token"][value="custom"]:checked');
+        wrap.style.display = checked ? 'block' : 'none';
+    }
 
-	(function() {
-		var textarea = document.querySelector('textarea[name="content"]');
-		var status = document.getElementById('upload-status');
+    // Slug preview updater
+    (function() {
+        var nameInput = document.getElementById('name');
+        var preview = document.getElementById('name-preview');
+        if (nameInput && preview) {
+            nameInput.addEventListener('input', function() {
+                preview.textContent = this.value || '...';
+            });
+        }
+    })();
 
-		function insertAtCursor(text) {
-			var start = textarea.selectionStart;
-			var end = textarea.selectionEnd;
-			var before = textarea.value.substring(0, start);
-			var after = textarea.value.substring(end);
-			textarea.value = before + text + '\n' + after;
-			textarea.selectionStart = textarea.selectionEnd = start + text.length + 1;
-			textarea.focus();
-		}
+    (function() {
+        var textarea = document.querySelector('textarea[name="content"]');
+        var status = document.getElementById('upload-status');
 
-		var uploader = window.GlimmerUpload.init({
-			imgBtn:    document.getElementById('upload-img-btn'),
-			fileBtn:   document.getElementById('upload-file-btn'),
-			imgInput:  document.getElementById('img-input'),
-			fileInput: document.getElementById('file-input'),
-			statusEl:  status,
-			maxImageMB: {{.UploadMaxMB}},
-			onUploaded: function(data) {
-				insertAtCursor(data.markdown);
-				status.textContent = 'Uploaded';
-				setTimeout(function() { status.textContent = ''; }, 3000);
-			}
-		});
+        function insertAtCursor(text) {
+            var start = textarea.selectionStart;
+            var end = textarea.selectionEnd;
+            var before = textarea.value.substring(0, start);
+            var after = textarea.value.substring(end);
+            textarea.value = before + text + '\n' + after;
+            textarea.selectionStart = textarea.selectionEnd = start + text.length + 1;
+            textarea.focus();
+        }
 
-		textarea.addEventListener('paste', function(e) {
-			var items = (e.clipboardData || {}).items || [];
-			for (var i = 0; i < items.length; i++) {
-				if (items[i].type.indexOf('image') !== -1) {
-					e.preventDefault();
-					uploader.doUpload(items[i].getAsFile(), true);
-					return;
-				}
-			}
-		});
-	})();
+        var uploader = window.GlimmerUpload.init({
+            imgBtn:    document.getElementById('upload-img-btn'),
+            fileBtn:   document.getElementById('upload-file-btn'),
+            imgInput:  document.getElementById('img-input'),
+            fileInput: document.getElementById('file-input'),
+            statusEl:  status,
+            maxImageMB: {{.UploadMaxMB}},
+            onUploaded: function(data) {
+                insertAtCursor(data.markdown);
+                status.textContent = 'Uploaded';
+                setTimeout(function() { status.textContent = ''; }, 3000);
+            }
+        });
+
+        textarea.addEventListener('paste', function(e) {
+            var items = (e.clipboardData || {}).items || [];
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    uploader.doUpload(items[i].getAsFile(), true);
+                    return;
+                }
+            }
+        });
+    })();
 </script>
-</body>
-</html>
+{{end}}

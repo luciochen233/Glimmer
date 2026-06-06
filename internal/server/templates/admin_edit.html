@@ -1,52 +1,51 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Edit Link — Glimmer</title>
-	<link rel="stylesheet" href="/static/pico.min.css">
-	<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-	<nav>
-		<ul><li><strong><a href="/">Glimmer</a></strong></li></ul>
-		<ul>
-			<li><a href="/admin">Back to list</a></li>
-			<li>
-				<form method="post" action="/admin/logout" style="margin:0">
-					<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-					<button type="submit" class="outline secondary btn-sm">Logout</button>
-				</form>
-			</li>
-		</ul>
-	</nav>
-	<main class="container">
-		<article>
-			<header>
-				<h2>Edit Link</h2>
-			</header>
+{{define "title"}}Edit Link — Glimmer{{end}}
+{{define "content"}}
 
-			{{if .Error}}
-			<article aria-label="error" class="alert-error">{{.Error}}</article>
-			{{end}}
+<div class="page-header">
+    <div class="page-title">
+        <h1>Edit Link</h1>
+        <p>Update the slug or destination URL.</p>
+    </div>
+    <div class="page-actions">
+        <a href="/admin" class="btn btn-secondary">Back to list</a>
+    </div>
+</div>
 
-			{{with .Link}}
-			<form method="post" action="/admin/edit/{{.ID}}">
-				<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-				<label for="slug">Slug</label>
-				<input type="text" id="slug" name="slug" value="{{.Slug}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{end}}
 
-				<label for="url">Destination URL</label>
-				<input type="url" id="url" name="url" value="{{.URL}}" required>
+{{with .Link}}
+<div class="card" style="max-width: 640px;">
+    <form method="post" action="/admin/edit/{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
 
-				<div role="group">
-					<button type="submit">Save</button>
-					<a href="/admin" role="button" class="outline secondary">Cancel</a>
-				</div>
-			</form>
-			{{end}}
-		</article>
-	</main>
-</body>
-</html>
+        <div class="form-group">
+            <label for="slug" class="form-label">Slug</label>
+            <input type="text" id="slug" name="slug" value="{{.Slug}}" required pattern="[a-zA-Z0-9_-]+" title="Letters, numbers, hyphens, underscores only">
+            <small class="form-help">The short path users will visit: <code>/<span id="slug-preview">{{.Slug}}</span></code></small>
+        </div>
+
+        <div class="form-group">
+            <label for="url" class="form-label">Destination URL</label>
+            <input type="url" id="url" name="url" value="{{.URL}}" required>
+        </div>
+
+        <hr class="divider">
+
+        <div class="flex gap-1">
+            <button type="submit" class="btn btn-primary">Save changes</button>
+            <a href="/admin" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+    document.getElementById('slug').addEventListener('input', function() {
+        document.getElementById('slug-preview').textContent = this.value || '...';
+    });
+</script>
+{{else}}
+<div class="alert alert-error">Link not found.</div>
+{{end}}
+{{end}}
