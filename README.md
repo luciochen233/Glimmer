@@ -188,6 +188,57 @@ api_key = "replace-with-a-long-random-token"
 
 MCP clients can authenticate with `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`. Basic auth using the configured admin username and password is also accepted. The endpoint exposes tools for listing, creating, updating, and deleting links and pastes, plus listing and deleting upload metadata/files.
 
+### REST API
+
+A small REST surface shares the same `[mcp].api_key`. It is registered only when `[mcp].enabled = true` **and** `api_key` is set, so a misconfigured server never exposes the endpoint unauthenticated. The route is intentionally undocumented in any public-facing template — visitors who don't know it exists get a 404.
+
+#### `POST /api/links`
+
+Create a short link. Authenticate with `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`. Both are checked with constant-time comparison.
+
+Request body (JSON):
+```json
+{
+  "url": "https://example.com/very/long/path",
+  "slug": "docs"   // optional; omit for auto-generated
+}
+```
+
+Rules:
+- `url` — required. Max 2048 chars. Must be `http://` or `https://`. Bare domains are auto-prefixed with `https://`.
+- `slug` — optional. Lowercase letters, digits, hyphens, and underscores, up to 64 chars.
+- Deduplication: if the same URL is submitted twice and no custom slug is given, the second call returns the existing link with HTTP 200 (idempotent).
+- Links created via the API are recorded as `created_by = "admin"` and appear in the admin dashboard.
+
+Responses:
+- `201 Created` — new link created. Body is the link payload.
+- `200 OK` — same URL already existed; returns the existing link.
+- `400 Bad Request` — invalid JSON, bad URL, or bad slug.
+- `401 Unauthorized` — missing or wrong API key.
+- `409 Conflict` — custom slug already taken.
+- `500 Internal Server Error` — database error.
+
+Response body (snake_case to match the MCP payload):
+```json
+{
+  "id": 42,
+  "slug": "docs",
+  "url": "https://example.com/very/long/path",
+  "short_url": "https://s.example.com/docs",
+  "created_by": "admin",
+  "clicks": 0,
+  "created_at": "2026-06-08T20:36:55Z"
+}
+```
+
+Example:
+```bash
+curl -X POST https://s.example.com/api/links \
+  -H "Authorization: Bearer $GLIMMER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/docs","slug":"docs"}'
+```
+
 ### 4. Build and run
 
 ```bash
@@ -444,6 +495,7 @@ If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limi
 | `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded file (CSRF) |
 | `POST` | `/admin/uploads/resize/{filename}` | Admin | Resize a PNG/JPEG in-place (returns JSON) |
 | `POST` | `/mcp` | MCP auth | JSON-RPC MCP endpoint, when `[mcp].enabled = true` |
+| `POST` | `/api/links` | API key | REST: create a short link (when `[mcp].enabled = true` and `api_key` is set) |
 | `GET` | `/static/*` | Public | CSS / static assets |
 
 ---

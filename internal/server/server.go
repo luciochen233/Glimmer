@@ -135,6 +135,14 @@ func (s *Server) Start() error {
 
 	if s.cfg.MCP.Enabled {
 		mux.HandleFunc("POST /mcp", s.handleMCP)
+		// REST surface for programmatic short-link creation. Shares the
+		// same API key as /mcp. Only registered when the API key is set so
+		// a misconfigured server never exposes the endpoint unauthenticated.
+		// The route is intentionally not documented in any public-facing
+		// template; visitors who don't know it exists get a 404.
+		if s.cfg.MCP.APIKey != "" {
+			mux.HandleFunc("POST /api/links", s.apiCreateLink)
+		}
 	}
 
 	// Pastebin public routes (before catch-all)
