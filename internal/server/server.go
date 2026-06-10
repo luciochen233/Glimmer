@@ -1,13 +1,17 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"glimmer/internal/config"
@@ -175,5 +179,26 @@ func (s *Server) Start() error {
 	}
 
 	log.Printf("Starting server on %s (base URL: %s)", addr, s.cfg.Server.BaseURL)
-	return srv.ListenAndServe()
+
+	// Graceful shutdown: on SIGINT/SIGTERM stop accepting connections, let
+	// in-flight requests drain (bounded), then return so deferred cleanup
+	// (e.g. closing the SQLite DB) runs instead of being killed mid-write.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		log.Printf("Shutting down...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return nil
+	}
 }

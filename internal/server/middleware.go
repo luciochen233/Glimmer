@@ -73,7 +73,7 @@ func (srv *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 // Uses a separate cookie (not HttpOnly so JS can read it, but SameSite=Lax
 // already blocks cross-site POSTs for most cases). The token is also embedded
 // in each form and verified server-side on every state-changing POST.
-func csrfToken(w http.ResponseWriter, r *http.Request) string {
+func (srv *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
 	if c, err := r.Cookie("csrf"); err == nil && len(c.Value) == 64 {
 		return c.Value
 	}
@@ -85,6 +85,7 @@ func csrfToken(w http.ResponseWriter, r *http.Request) string {
 		Value:    token,
 		Path:     "/",
 		SameSite: http.SameSiteLaxMode,
+		Secure:   srv.isHTTPS(r),
 		MaxAge:   86400,
 	})
 	return token

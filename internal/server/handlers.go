@@ -145,7 +145,7 @@ func (s *Server) isHTTPS(r *http.Request) bool {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "index.html", pageData{BaseURL: s.baseURL(r), LoggedIn: s.isLoggedIn(r), CSRFToken: csrfToken(w, r)})
+	renderTemplate(w, "index.html", pageData{BaseURL: s.baseURL(r), LoggedIn: s.isLoggedIn(r), CSRFToken: s.csrfToken(w, r)})
 }
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request, errMsg, sho
 		OriginalURL: originalURL,
 		QRSVG:       qrsvg,
 		LoggedIn:    s.isLoggedIn(r),
-		CSRFToken:   csrfToken(w, r),
+		CSRFToken:   s.csrfToken(w, r),
 	})
 }
 
@@ -291,14 +291,14 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 // Admin handlers
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "admin_login.html", pageData{BaseURL: s.baseURL(r), CSRFToken: csrfToken(w, r)})
+	renderTemplate(w, "admin_login.html", pageData{BaseURL: s.baseURL(r), CSRFToken: s.csrfToken(w, r)})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Throttle login attempts per IP to slow brute force.
 	if !s.authLimiter.Allow(clientIP(r, s.cfg.Server.TrustProxy)) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		renderTemplate(w, "admin_login.html", pageData{Error: "Too many attempts. Please wait a moment.", CSRFToken: csrfToken(w, r)})
+		renderTemplate(w, "admin_login.html", pageData{Error: "Too many attempts. Please wait a moment.", CSRFToken: s.csrfToken(w, r)})
 		return
 	}
 
@@ -313,12 +313,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !available {
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		renderTemplate(w, "admin_login.html", pageData{Error: "Server busy. Please try again.", CSRFToken: csrfToken(w, r)})
+		renderTemplate(w, "admin_login.html", pageData{Error: "Server busy. Please try again.", CSRFToken: s.csrfToken(w, r)})
 		return
 	}
 	if !userOK || !pwOK {
 		w.WriteHeader(http.StatusUnauthorized)
-		renderTemplate(w, "admin_login.html", pageData{Error: "Invalid credentials", CSRFToken: csrfToken(w, r)})
+		renderTemplate(w, "admin_login.html", pageData{Error: "Invalid credentials", CSRFToken: s.csrfToken(w, r)})
 		return
 	}
 
@@ -362,7 +362,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, nav string) p
 		BaseURL:     s.baseURL(r),
 		LoggedIn:    true,
 		ActiveNav:   nav,
-		CSRFToken:   csrfToken(w, r),
+		CSRFToken:   s.csrfToken(w, r),
 		UploadMaxMB: s.cfg.Upload.MaxSize,
 	}
 }
@@ -814,6 +814,36 @@ func scaleImage(src image.Image, maxDim int) image.Image {
 	return dst
 }
 
+// maxDecodePixels caps the pixel count of images we are willing to fully
+// decode. A small compressed file can declare enormous dimensions (a
+// decompression bomb): 24 MP decodes to ~96 MB of NRGBA, which is already a
+// big bite on an RPi Zero — anything larger is rejected before decode.
+const maxDecodePixels = 24 << 20
+
+// decodeImageBounded decodes an image file, but reads only the header first
+// and refuses files whose decoded size would exceed maxDecodePixels. The
+// dimension product uses int64 so a malicious header cannot overflow 32-bit
+// int on ARMv5.
+func decodeImageBounded(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
+		return nil, fmt.Errorf("image dimensions too large (%dx%d, max %d megapixels)", cfg.Width, cfg.Height, maxDecodePixels>>20)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	src, _, err := image.Decode(f)
+	return src, err
+}
+
 // ---- Thumbnails ----
 
 const thumbMaxDim = 512 // long-side size of generated thumbnails, in pixels
@@ -838,12 +868,7 @@ func (s *Server) generateThumbnail(filename string) error {
 	if !isImageFile(filename) {
 		return fmt.Errorf("not an image")
 	}
-	f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, filename))
-	if err != nil {
-		return err
-	}
-	src, _, err := image.Decode(f)
-	f.Close()
+	src, err := decodeImageBounded(filepath.Join(s.cfg.Upload.Dir, filename))
 	if err != nil {
 		return err
 	}
@@ -1108,15 +1133,13 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 	}
 
 	path := filepath.Join(s.cfg.Upload.Dir, filename)
-	f, err := os.Open(path)
-	if err != nil {
+	if _, err := os.Stat(path); err != nil {
 		jsonError(w, "File not found", http.StatusNotFound)
 		return
 	}
-	src, _, err := image.Decode(f)
-	f.Close()
+	src, err := decodeImageBounded(path)
 	if err != nil {
-		jsonError(w, "Failed to decode image", http.StatusInternalServerError)
+		jsonError(w, "Failed to decode image: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 
