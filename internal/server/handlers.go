@@ -125,11 +125,23 @@ func (s *Server) baseURL(r *http.Request) string {
 	if host == "" {
 		return s.cfg.Server.BaseURL
 	}
-	proto := r.Header.Get("X-Forwarded-Proto")
-	if proto == "" {
-		proto = "http"
+	// X-Forwarded-Proto is client-settable, so it is only honoured behind a
+	// trusted proxy (same rule as X-Forwarded-For). Otherwise fall back to
+	// the configured base URL's scheme.
+	proto := "http"
+	if s.isHTTPS(r) {
+		proto = "https"
 	}
 	return proto + "://" + host
+}
+
+// isHTTPS reports whether the request should be treated as HTTPS: either the
+// trusted proxy says so, or the operator configured an https base URL.
+func (s *Server) isHTTPS(r *http.Request) bool {
+	if s.cfg.Server.TrustProxy && r.Header.Get("X-Forwarded-Proto") == "https" {
+		return true
+	}
+	return strings.HasPrefix(s.cfg.Server.BaseURL, "https://")
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +328,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secure := r.Header.Get("X-Forwarded-Proto") == "https"
+	secure := s.isHTTPS(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
@@ -662,6 +674,10 @@ func (s *Server) handleAdminBinSave(w http.ResponseWriter, r *http.Request) {
 	paste, err := s.db.GetPasteByID(id)
 	if err == sql.ErrNoRows {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
@@ -1066,6 +1082,15 @@ func (s *Server) handleAdminUploadDelete(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request) {
+	// The resize request arrives as multipart FormData, so CSRF is verified
+	// here rather than via the requireCSRF wrapper (see CLAUDE.md). The body
+	// is tiny — cap it before the form parse triggered by verifyCSRF.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !verifyCSRF(r) {
+		jsonError(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
 	filename := r.PathValue("filename")
 	if !validUploadFilename(filename) {
 		jsonError(w, "Invalid filename", http.StatusBadRequest)

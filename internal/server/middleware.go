@@ -204,7 +204,9 @@ func limitConcurrency(max int, next http.Handler) http.Handler {
 // and are excluded.
 func limitBody(maxBytes int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && !strings.HasPrefix(r.URL.Path, "/admin/upload") {
+		// Exact-match the two upload endpoints: a prefix match would also
+		// exempt /admin/uploads/* (delete, resize) from the body cap.
+		if r.Method == http.MethodPost && r.URL.Path != "/admin/upload" && r.URL.Path != "/admin/upload-file" {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 		}
 		next.ServeHTTP(w, r)
