@@ -52,19 +52,23 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		// All assets are served from the same origin (Pico CSS is vendored
-		// locally), so the app works fully offline and we can lock the origin
-		// down. img-src allows data: and https: so uploaded/remote images and
+		// All assets are served from the same origin (CSS and JS are embedded),
+		// so the app works fully offline and we can lock the origin down.
+		// img-src allows data: and https: so uploaded/remote images and
 		// favicons still render, and blob: so the client-side image compressor
-		// (canvas) can load a selected file before upload. 'unsafe-inline' is required by the inline
-		// scripts/styles in the templates; object-src/base-uri are pinned to
-		// blunt injection; frame-ancestors 'self' permits the same-origin paste
+		// (canvas) can load a selected file before upload. script-src is
+		// 'self' only — all JS lives in /static/js/ files; do not add inline
+		// <script> blocks or on*= attributes to templates, they will be
+		// blocked. style-src keeps 'unsafe-inline' for the style="" attributes
+		// throughout the templates (style injection is far lower risk than
+		// script injection). object-src/base-uri are pinned to blunt
+		// injection; frame-ancestors 'self' permits the same-origin paste
 		// preview iframe while blocking cross-site clickjacking.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"img-src 'self' data: https: blob:; "+
 				"style-src 'self' 'unsafe-inline'; "+
-				"script-src 'self' 'unsafe-inline'; "+
+				"script-src 'self'; "+
 				"object-src 'none'; "+
 				"base-uri 'none'; "+
 				"frame-ancestors 'self'")

@@ -19,7 +19,7 @@
         </div>
         <div class="paste-toolbar">
             <a href="?raw=1" class="btn btn-secondary btn-sm">Raw</a>
-            <button class="btn btn-primary btn-sm" onclick="copyPaste(this)">Copy</button>
+            <button id="copy-paste-btn" class="btn btn-primary btn-sm">Copy</button>
         </div>
     </div>
 
@@ -33,15 +33,7 @@
 
 </div>
 
-<script>
-    function copyPaste(btn) {
-        var orig = btn.textContent;
-        navigator.clipboard.writeText(document.getElementById('paste-raw').innerText).then(function() {
-            btn.textContent = 'Copied!';
-            setTimeout(function() { btn.textContent = orig; }, 1500);
-        });
-    }
-</script>
+<script src="/static/js/bin_view.js"></script>
 {{else}}
     <div class="card center-page">
         <h2>Paste not found</h2>

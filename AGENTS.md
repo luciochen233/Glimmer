@@ -48,6 +48,9 @@ glimmer/
         │   │   └── style.css        # Custom Solis-style design system (amber/cream, Outfit font)
         │   ├── favicon.ico
         │   ├── favicon.png
+        │   ├── js/                  # Per-page scripts (CSP blocks inline JS)
+        │   │   ├── base.js          # QR modal, data-confirm forms, glimmerCopy
+        │   │   └── *.js             # One file per template that needs behaviour
         │   └── upload.js            # Shared client-side upload helper (window.GlimmerUpload)
         └── templates/
             ├── base.html            # Layout wrapper: sidebar (logged in) or public header
@@ -89,8 +92,10 @@ All templates receive a `pageData` struct. Add new fields there when templates n
 ### Templates are embedded, not on disk
 Templates and static files are embedded into the binary via `//go:embed` in `templates.go`. Changes to templates are compiled in; they are **not** reloaded at runtime. Always rebuild after template changes.
 
-### No JS frameworks
-All JavaScript is vanilla ES5-style (`var`, not `const`/`let`). Most JS is inline in templates; shared upload logic lives in `static/upload.js` and is exposed as `window.GlimmerUpload`. No build step, no npm, no bundler.
+### No JS frameworks — and no inline JS
+All JavaScript is vanilla ES5-style (`var`, not `const`/`let`). No build step, no npm, no bundler.
+
+The CSP is `script-src 'self'`, so **inline `<script>` blocks and `on*=` attributes in templates are blocked by the browser**. All behaviour lives in files under `static/js/` (one per template, plus `base.js` for shared chrome: the QR modal, `glimmerCopy`, and `form[data-confirm]` submit confirmation). To pass template data to JS, put it in `data-*` attributes and read it from the script — never interpolate `{{...}}` into JS. Shared upload logic lives in `static/upload.js` as `window.GlimmerUpload`.
 
 ### CSS framework
 **No CSS framework.** Glimmer uses a custom design system in `static/css/style.css` inspired by Solis's "Sunlight & Clarity" theme — warm amber (`#d97706`) on cream (`#fafaf9`) with Outfit font, sidebar + main-area layout, soft shadows with amber tint, cubic-bezier spring animations on toasts/modals. All templates are self-contained and offline-capable. **No external CDN dependencies.**

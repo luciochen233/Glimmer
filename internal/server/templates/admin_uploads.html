@@ -22,7 +22,7 @@
             <p class="card-subtitle">{{len .Uploads}} file{{if ne (len .Uploads) 1}}s{{end}} stored locally.</p>
         </div>
         <div class="upload-controls">
-            <button type="button" id="upload-img-btn" class="btn btn-primary btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">
+            <button type="button" id="upload-img-btn" class="btn btn-primary btn-sm" data-max-mb="{{.UploadMaxMB}}" title="PNG, JPEG, GIF, WebP — up to 50 MB">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
                 Upload Image <small style="opacity:.6">(50 MB)</small>
             </button>
@@ -71,9 +71,9 @@
                     <td>{{.ModTime.Format "2006-01-02 15:04"}}</td>
                     <td class="col-actions">
                         <div class="flex gap-1">
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="copyMarkdown('{{.Filename}}', {{.IsImage}}, '{{.OriginalName}}', this)">Copy</button>
-                            {{if .CanResize}}<button type="button" class="btn btn-secondary btn-sm" onclick="openResize('{{.Filename}}', {{.Width}}, {{.Height}})">Resize</button>{{end}}
-                            <form method="post" action="/admin/uploads/delete/{{.Filename}}" style="display:inline" onsubmit="return confirm('Delete this file?')">
+                            <button type="button" class="btn btn-secondary btn-sm js-copy-md" data-filename="{{.Filename}}" data-image="{{if .IsImage}}1{{end}}" data-original="{{.OriginalName}}">Copy</button>
+                            {{if .CanResize}}<button type="button" class="btn btn-secondary btn-sm js-resize" data-filename="{{.Filename}}" data-width="{{.Width}}" data-height="{{.Height}}">Resize</button>{{end}}
+                            <form method="post" action="/admin/uploads/delete/{{.Filename}}" style="display:inline" data-confirm="Delete this file?">
                                 <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                 <button type="submit" class="btn btn-danger btn-sm">Del</button>
                             </form>
@@ -96,7 +96,7 @@
 <dialog id="resize-dialog">
     <article>
         <header>
-            <button aria-label="Close" onclick="document.getElementById('resize-dialog').close()"></button>
+            <button class="js-resize-cancel" aria-label="Close"></button>
             <h3>Resize Image</h3>
         </header>
         <p id="resize-current" class="text-muted" style="margin-bottom: 1rem;"></p>
@@ -104,76 +104,12 @@
         <input type="number" id="resize-dim" value="1200" min="64" max="8192" step="1">
         <small id="resize-status" class="text-muted" style="display:block; margin-top:0.5rem;"></small>
         <footer>
-            <button type="button" class="btn btn-secondary" onclick="document.getElementById('resize-dialog').close()">Cancel</button>
+            <button type="button" class="btn btn-secondary js-resize-cancel">Cancel</button>
             <button type="button" id="resize-confirm" class="btn btn-primary">Resize</button>
         </footer>
     </article>
 </dialog>
 
 <script src="/static/upload.js"></script>
-<script>
-    var currentResizeFile = '';
-
-    function copyMarkdown(filename, isImage, originalName, btn) {
-        var url = '/uploads/' + filename;
-        var label = originalName || filename;
-        var md = isImage ? '![](' + url + ')' : '[' + label + '](' + url + ')';
-        var orig = btn.textContent;
-        navigator.clipboard.writeText(md).then(function() {
-            btn.textContent = 'Copied!';
-            setTimeout(function() { btn.textContent = orig; }, 1500);
-        });
-    }
-
-    function openResize(filename, w, h) {
-        currentResizeFile = filename;
-        document.getElementById('resize-current').textContent = 'Current: ' + w + '×' + h;
-        document.getElementById('resize-status').textContent = '';
-        document.getElementById('resize-confirm').disabled = false;
-        document.getElementById('resize-dialog').showModal();
-    }
-
-    document.getElementById('resize-confirm').addEventListener('click', function() {
-        var dim = document.getElementById('resize-dim').value;
-        var status = document.getElementById('resize-status');
-        var btn = this;
-        status.textContent = 'Resizing…';
-        btn.disabled = true;
-
-        var fd = new FormData();
-        fd.append('csrf_token', window.GlimmerUpload.getCsrfToken());
-        fd.append('max_dim', dim);
-
-        fetch('/admin/uploads/resize/' + currentResizeFile, { method: 'POST', body: fd, credentials: 'same-origin' })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                btn.disabled = false;
-                if (data.error) {
-                    status.textContent = 'Error: ' + data.error;
-                    return;
-                }
-                var sizeEl = document.getElementById('size-' + currentResizeFile);
-                var dimEl = document.getElementById('dim-' + currentResizeFile);
-                if (sizeEl) sizeEl.textContent = data.size_human;
-                if (dimEl) dimEl.textContent = data.width + '×' + data.height;
-                status.textContent = 'Done — ' + data.size_human;
-                var imgs = document.querySelectorAll('img[src="/uploads/' + currentResizeFile + '"]');
-                imgs.forEach(function(img) { img.src = '/uploads/' + currentResizeFile + '?t=' + Date.now(); });
-            })
-            .catch(function() {
-                btn.disabled = false;
-                status.textContent = 'Failed';
-            });
-    });
-
-    window.GlimmerUpload.init({
-        imgBtn:    document.getElementById('upload-img-btn'),
-        fileBtn:   document.getElementById('upload-file-btn'),
-        imgInput:  document.getElementById('img-input'),
-        fileInput: document.getElementById('file-input'),
-        statusEl:  document.getElementById('upload-status'),
-        maxImageMB: {{.UploadMaxMB}},
-        onUploaded: function() { location.reload(); }
-    });
-</script>
+<script src="/static/js/admin_uploads.js"></script>
 {{end}}

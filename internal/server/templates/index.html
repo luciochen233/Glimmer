@@ -23,7 +23,7 @@
         </div>
         <div class="result-box">
             <code id="short-url">{{.ShortURL}}</code>
-            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('short-url').textContent, this)">Copy</button>
+            <button id="copy-short-url" class="btn btn-secondary btn-sm">Copy</button>
         </div>
         {{if .QRSVG}}
         <div class="qr-display">{{.QRSVG}}</div>
@@ -52,20 +52,5 @@
 
 </div>
 
-<script>
-    document.getElementById('shorten-form').addEventListener('submit', function() {
-        var input = document.getElementById('url');
-        if (input.value && input.value.indexOf('://') === -1) {
-            input.value = 'https://' + input.value;
-        }
-    });
-
-    function copyToClipboard(text, btn) {
-        var orig = btn.textContent;
-        navigator.clipboard.writeText(text).then(function() {
-            btn.textContent = 'Copied!';
-            setTimeout(function() { btn.textContent = orig; }, 1500);
-        });
-    }
-</script>
+<script src="/static/js/index.js"></script>
 {{end}}

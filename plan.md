@@ -1,8 +1,7 @@
 # Hardening / Robustness Plan
 
-> Progress: items 1–4 done (build/vet/tests green, ARMv5 cross-compile
-> verified). Item 5 remains — large template refactor, best done as its own
-> piece of work.
+> Progress: all five items done. Item 5 verified in a live browser session
+> (every page exercised, zero console errors / CSP violations).
 
 Follow-ups from the 2026-06-09 security review (fixes from that review already
 landed in `962f5d9`). Status legend: ☐ todo · ◐ in progress · ☑ done
@@ -46,12 +45,16 @@ upload serving) have zero tests. Add `handlers_test.go` covering at least:
 - login: wrong password → 401, correct → session cookie + redirect
 - oversized-image rejection from item 1
 
-## 5. ☐ Drop `'unsafe-inline'` from `script-src` (CSP)
+## 5. ☑ Drop `'unsafe-inline'` from `script-src` (CSP)
 
-All template JS is inline, so the CSP doesn't actually block injected
-scripts. Move inline blocks into embedded static files (the `upload.js`
-pattern) and tighten `script-src` to `'self'`. Touches every template —
-deliberately last, and large enough that it may warrant its own session.
+Done: all inline `<script>` blocks and `on*=` attributes moved to per-page
+files under `static/js/` (`base.js` carries shared chrome: QR modal,
+`glimmerCopy`, `form[data-confirm]`). Template data is passed via `data-*`
+attributes instead of `{{...}}` interpolation in JS. `script-src` is now
+`'self'`; `style-src` keeps `'unsafe-inline'` for the `style=""` attributes.
+Verified live: shorten flow, login, QR modal, paste editor (token radios,
+name preview), paste cards (preview dialog, expand/close), public paste view,
+token prompt redirect, uploads page — no console errors or CSP violations.
 
 ---
 

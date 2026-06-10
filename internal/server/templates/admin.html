@@ -82,8 +82,8 @@
                         <td class="col-actions">
                             <div class="flex gap-1">
                                 <a href="/admin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
-                                <button type="button" class="btn btn-secondary btn-sm" onclick="openQRModal('{{.Slug}}', '{{.Slug}}')">QR</button>
-                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" onsubmit="return confirm('Delete /{{.Slug}}?')">
+                                <button type="button" class="btn btn-secondary btn-sm js-qr" data-slug="{{.Slug}}">QR</button>
+                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" data-confirm="Delete /{{.Slug}}?">
                                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                     <button type="submit" class="btn btn-danger btn-sm">Del</button>
                                 </form>
@@ -134,8 +134,8 @@
                         <td class="col-actions">
                             <div class="flex gap-1">
                                 <a href="/admin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
-                                <button type="button" class="btn btn-secondary btn-sm" onclick="openQRModal('{{.Slug}}', '{{.Slug}}')">QR</button>
-                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" onsubmit="return confirm('Delete /{{.Slug}}?')">
+                                <button type="button" class="btn btn-secondary btn-sm js-qr" data-slug="{{.Slug}}">QR</button>
+                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" data-confirm="Delete /{{.Slug}}?">
                                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                     <button type="submit" class="btn btn-danger btn-sm">Del</button>
                                 </form>
@@ -156,13 +156,5 @@
     </div>
 </section>
 
-<script>
-    // Compress URL displays to hostname for visual cleanliness
-    document.querySelectorAll('[data-hostname]').forEach(function(el) {
-        try {
-            var u = new URL(el.textContent.trim());
-            el.textContent = u.hostname + (u.pathname !== '/' ? u.pathname : '');
-        } catch (e) {}
-    });
-</script>
+<script src="/static/js/admin.js"></script>
 {{end}}

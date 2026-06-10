@@ -63,7 +63,7 @@
         <div class="form-group">
             <label for="content" class="form-label">Content</label>
             <div class="upload-controls" style="margin-bottom: 0.5rem;">
-                <button type="button" id="upload-img-btn" class="btn btn-secondary btn-sm" title="PNG, JPEG, GIF, WebP — up to 50 MB">
+                <button type="button" id="upload-img-btn" class="btn btn-secondary btn-sm" data-max-mb="{{$.UploadMaxMB}}" title="PNG, JPEG, GIF, WebP — up to 50 MB">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
                     Upload Image
                 </button>
@@ -90,15 +90,15 @@
             <p class="text-muted" style="margin-bottom: 0.75rem;">
                 Current token: <code>{{.Token}}</code> — URL: <code>/bin/{{.Name}}/{{.Token}}</code>
             </p>
-            <label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep current token</label>
-            <label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Regenerate token</label>
-            <label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
-            <label><input type="radio" name="token_action" value="disable" onchange="toggleCustomToken()"> Disable token (public access)</label>
+            <label><input type="radio" name="token_action" value="keep" checked> Keep current token</label>
+            <label><input type="radio" name="token_action" value="regenerate"> Regenerate token</label>
+            <label><input type="radio" name="token_action" value="custom"> Set custom token</label>
+            <label><input type="radio" name="token_action" value="disable"> Disable token (public access)</label>
             {{else}}
             <p class="text-muted" style="margin-bottom: 0.75rem;">Token is currently <strong>disabled</strong> — paste is publicly accessible.</p>
-            <label><input type="radio" name="token_action" value="keep" checked onchange="toggleCustomToken()"> Keep disabled</label>
-            <label><input type="radio" name="token_action" value="regenerate" onchange="toggleCustomToken()"> Enable with new token</label>
-            <label><input type="radio" name="token_action" value="custom" onchange="toggleCustomToken()"> Set custom token</label>
+            <label><input type="radio" name="token_action" value="keep" checked> Keep disabled</label>
+            <label><input type="radio" name="token_action" value="regenerate"> Enable with new token</label>
+            <label><input type="radio" name="token_action" value="custom"> Set custom token</label>
             {{end}}
             <div id="custom-token-wrap" style="display:none; margin: 0.5rem 0 0.5rem 1.5rem;">
                 <input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
@@ -109,9 +109,9 @@
             </label>
             {{end}}
             {{else}}
-            <label><input type="radio" name="enable_token" value="0" checked onchange="toggleCustomToken()"> No token (public access)</label>
-            <label><input type="radio" name="enable_token" value="1" onchange="toggleCustomToken()"> Generate access token</label>
-            <label><input type="radio" name="enable_token" value="custom" onchange="toggleCustomToken()"> Custom token</label>
+            <label><input type="radio" name="enable_token" value="0" checked> No token (public access)</label>
+            <label><input type="radio" name="enable_token" value="1"> Generate access token</label>
+            <label><input type="radio" name="enable_token" value="custom"> Custom token</label>
             <div id="custom-token-wrap" style="display:none; margin: 0.5rem 0 0.5rem 1.5rem;">
                 <input type="text" name="custom_token" placeholder="Enter custom token" pattern="[a-zA-Z0-9_-]+" maxlength="64">
             </div>
@@ -131,64 +131,5 @@
 </div>
 
 <script src="/static/upload.js"></script>
-<script>
-    function toggleCustomToken() {
-        var wrap = document.getElementById('custom-token-wrap');
-        if (!wrap) return;
-        var checked = document.querySelector('input[name="token_action"][value="custom"]:checked') ||
-                      document.querySelector('input[name="enable_token"][value="custom"]:checked');
-        wrap.style.display = checked ? 'block' : 'none';
-    }
-
-    // Slug preview updater
-    (function() {
-        var nameInput = document.getElementById('name');
-        var preview = document.getElementById('name-preview');
-        if (nameInput && preview) {
-            nameInput.addEventListener('input', function() {
-                preview.textContent = this.value || '...';
-            });
-        }
-    })();
-
-    (function() {
-        var textarea = document.querySelector('textarea[name="content"]');
-        var status = document.getElementById('upload-status');
-
-        function insertAtCursor(text) {
-            var start = textarea.selectionStart;
-            var end = textarea.selectionEnd;
-            var before = textarea.value.substring(0, start);
-            var after = textarea.value.substring(end);
-            textarea.value = before + text + '\n' + after;
-            textarea.selectionStart = textarea.selectionEnd = start + text.length + 1;
-            textarea.focus();
-        }
-
-        var uploader = window.GlimmerUpload.init({
-            imgBtn:    document.getElementById('upload-img-btn'),
-            fileBtn:   document.getElementById('upload-file-btn'),
-            imgInput:  document.getElementById('img-input'),
-            fileInput: document.getElementById('file-input'),
-            statusEl:  status,
-            maxImageMB: {{.UploadMaxMB}},
-            onUploaded: function(data) {
-                insertAtCursor(data.markdown);
-                status.textContent = 'Uploaded';
-                setTimeout(function() { status.textContent = ''; }, 3000);
-            }
-        });
-
-        textarea.addEventListener('paste', function(e) {
-            var items = (e.clipboardData || {}).items || [];
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].type.indexOf('image') !== -1) {
-                    e.preventDefault();
-                    uploader.doUpload(items[i].getAsFile(), true);
-                    return;
-                }
-            }
-        });
-    })();
-</script>
+<script src="/static/js/admin_bin_edit.js"></script>
 {{end}}

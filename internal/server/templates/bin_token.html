@@ -22,13 +22,5 @@
 
 </div>
 
-<script>
-    document.getElementById('token-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        var token = document.getElementById('token-input').value.trim();
-        if (token) {
-            window.location.href = window.location.pathname + '/' + encodeURIComponent(token);
-        }
-    });
-</script>
+<script src="/static/js/bin_token.js"></script>
 {{end}}

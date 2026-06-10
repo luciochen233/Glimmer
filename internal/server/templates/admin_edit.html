@@ -40,11 +40,7 @@
     </form>
 </div>
 
-<script>
-    document.getElementById('slug').addEventListener('input', function() {
-        document.getElementById('slug-preview').textContent = this.value || '...';
-    });
-</script>
+<script src="/static/js/admin_edit.js"></script>
 {{else}}
 <div class="alert alert-error">Link not found.</div>
 {{end}}

@@ -88,9 +88,9 @@
     </div>
 
     <!-- QR Code Preview Modal -->
-    <div id="qr-modal-overlay" class="qr-modal-overlay" onclick="if(event.target===this)closeQRModal()">
+    <div id="qr-modal-overlay" class="qr-modal-overlay">
         <div id="qr-modal-card" class="qr-modal-card">
-            <button class="qr-modal-close" onclick="closeQRModal()" aria-label="Close">&times;</button>
+            <button id="qr-modal-close" class="qr-modal-close" aria-label="Close">&times;</button>
             <h3>QR Code</h3>
             <img id="qr-modal-image" class="qr-modal-image" src="" alt="QR Code">
             <code id="qr-modal-link" class="qr-modal-link"></code>
@@ -98,23 +98,6 @@
         </div>
     </div>
 
-    <script>
-        function openQRModal(slug, name) {
-            var overlay = document.getElementById('qr-modal-overlay');
-            document.getElementById('qr-modal-image').src = '/admin/qr/' + slug;
-            document.getElementById('qr-modal-link').textContent = '/admin/qr/' + slug;
-            var dl = document.getElementById('qr-modal-download');
-            dl.href = '/admin/qr/' + slug;
-            dl.download = (name || slug) + '_QR.svg';
-            overlay.classList.add('show');
-        }
-        function closeQRModal() {
-            document.getElementById('qr-modal-overlay').classList.remove('show');
-            document.getElementById('qr-modal-image').src = '';
-        }
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') closeQRModal();
-        });
-    </script>
+    <script src="/static/js/base.js"></script>
 </body>
 </html>{{end}}

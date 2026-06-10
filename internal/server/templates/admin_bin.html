@@ -46,10 +46,10 @@
             </div>
         </div>
         <div class="paste-card-actions">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();copyPasteLink('{{.Name}}','{{.Token}}', this)">Copy link</button>
-            <a href="/admin/bin/edit/{{.ID}}" class="btn btn-secondary btn-sm" onclick="event.stopPropagation()">Edit</a>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showBinQR('{{.Name}}', false)">QR</button>
-            <form method="post" action="/admin/bin/delete/{{.ID}}" style="display:inline" onsubmit="return confirm('Delete paste {{.Name}}?')">
+            <button type="button" class="btn btn-secondary btn-sm js-copy-link">Copy link</button>
+            <a href="/admin/bin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
+            <button type="button" class="btn btn-secondary btn-sm js-bin-qr">QR</button>
+            <form method="post" action="/admin/bin/delete/{{.ID}}" style="display:inline" data-confirm="Delete paste {{.Name}}?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                 <button type="submit" class="btn btn-danger btn-sm">Del</button>
             </form>
@@ -73,91 +73,12 @@
         <span class="preview-title" id="preview-title">Preview</span>
         <div class="preview-actions">
             <a id="preview-open" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Open ↗</a>
-            <button type="button" class="btn btn-secondary btn-sm" id="preview-expand" onclick="toggleExpand()" aria-label="Expand">⤢</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="closePreview()" aria-label="Close">✕</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="preview-expand" aria-label="Expand">⤢</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="preview-close" aria-label="Close">✕</button>
         </div>
     </div>
     <iframe id="preview-frame" class="preview-frame" src="about:blank" title="Paste preview"></iframe>
 </dialog>
 
-<script>
-    function previewURL(name, token) {
-        var u = '/bin/' + encodeURIComponent(name);
-        if (token) u += '/' + encodeURIComponent(token);
-        return u;
-    }
-
-    function openPreview(name, token, title) {
-        var dlg = document.getElementById('preview-dialog');
-        var fullURL = previewURL(name, token);
-        // iframe uses the embed view so it strips the sidebar / header / toolbar —
-        // only the paste body is rendered inside the dialog.
-        var embedURL = fullURL + '?embed=1';
-        document.getElementById('preview-frame').src = embedURL;
-        // The "Open ↗" link goes to the full URL (with chrome) so a new tab shows the
-        // normal public page.
-        document.getElementById('preview-open').href = fullURL;
-        document.getElementById('preview-title').textContent = title || name;
-        dlg.classList.remove('expanded');
-        document.getElementById('preview-expand').innerHTML = '⤢';
-        document.getElementById('preview-expand').setAttribute('aria-label', 'Expand');
-        dlg.showModal();
-    }
-
-    function closePreview() {
-        document.getElementById('preview-dialog').close();
-    }
-
-    function toggleExpand() {
-        var dlg = document.getElementById('preview-dialog');
-        var expanded = dlg.classList.toggle('expanded');
-        var btn = document.getElementById('preview-expand');
-        btn.innerHTML = expanded ? '⤡' : '⤢';
-        btn.setAttribute('aria-label', expanded ? 'Shrink' : 'Expand');
-    }
-
-    function copyPasteLink(name, token, btn) {
-        var url = location.origin + previewURL(name, token);
-        var orig = btn.textContent;
-        navigator.clipboard.writeText(url).then(function() {
-            btn.textContent = 'Copied!';
-            setTimeout(function() { btn.textContent = orig; }, 1500);
-        });
-    }
-
-    function showBinQR(name, full) {
-        var url = location.origin + '/bin/' + encodeURIComponent(name);
-        var fetchUrl = '/admin/bin/qr/' + encodeURIComponent(name);
-        if (full) fetchUrl += '?full=1';
-        var overlay = document.getElementById('qr-modal-overlay');
-        document.getElementById('qr-modal-image').src = fetchUrl;
-        document.getElementById('qr-modal-link').textContent = url + (full ? ' (with token)' : '');
-        var dl = document.getElementById('qr-modal-download');
-        dl.href = fetchUrl;
-        dl.download = name + '_QR.svg';
-        overlay.classList.add('show');
-    }
-
-    // Click on paste card opens preview, except when clicking action buttons
-    document.querySelectorAll('.js-preview').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-            if (e.target.closest('.paste-card-actions')) return;
-            if (e.target.closest('a, button, form, input')) return;
-            openPreview(el.dataset.name, el.dataset.token, el.dataset.title);
-        });
-        el.setAttribute('tabindex', '0');
-        el.setAttribute('role', 'button');
-        el.addEventListener('keydown', function(e) {
-            if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.paste-card-actions')) {
-                e.preventDefault();
-                openPreview(el.dataset.name, el.dataset.token, el.dataset.title);
-            }
-        });
-    });
-
-    // Clear iframe when dialog closes
-    document.getElementById('preview-dialog').addEventListener('close', function() {
-        document.getElementById('preview-frame').src = 'about:blank';
-    });
-</script>
+<script src="/static/js/admin_bin.js"></script>
 {{end}}
