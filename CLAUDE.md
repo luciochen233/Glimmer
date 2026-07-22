@@ -28,7 +28,8 @@ Always run `go build ./...` (or `make build`) after any Go changes to confirm th
 ```
 glimmer/
 ├── main.go                          # Entry point; --hash-password flag
-├── config.toml                      # Runtime config (not embedded — loaded at startup)
+├── config.example.toml              # Tracked config template — copy to config.toml
+├── config.toml                      # Runtime config (gitignored, loaded at startup)
 ├── go.mod / go.sum
 ├── Makefile
 ├── data/
@@ -158,7 +159,9 @@ Redirects uppercase paths to lowercase (for QR-code URL compatibility). **Exclud
 
 ---
 
-## Configuration (`config.toml`)
+## Configuration
+
+`config.example.toml` is the tracked template. Copy it to `config.toml` (gitignored) and fill in real values — `config.toml` is what the server loads at startup. Never edit the example with live secrets.
 
 ```toml
 [server]
@@ -184,7 +187,7 @@ dir         = "./data/uploads"
 max_size_mb = 50
 ```
 
-All fields have safe defaults in `config.Load()` — the only required field is `admin.password_hash`.
+All fields have safe defaults in `config.Load()` — the only required field is `admin.password_hash`. If `config.toml` is absent, `config.Load()` returns an error; copy `config.example.toml` to `config.toml` first.
 
 ---
 

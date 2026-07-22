@@ -28,21 +28,6 @@ func (s *Server) apiKeyAuth(r *http.Request) bool {
 	return false
 }
 
-func writeAPIError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if status == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="Glimmer API"`)
-	}
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
-func writeAPIJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 // apiCreateLinkRequest is the body of POST /api/links.
 type apiCreateLinkRequest struct {
 	URL  string `json:"url"`
@@ -67,23 +52,11 @@ func (s *Server) toAPILink(link db.Link) apiLinkResponse {
 		ID:        link.ID,
 		Slug:      link.Slug,
 		URL:       link.URL,
-		ShortURL:  joinBaseURL(s.baseURLForAPI(), "/"+link.Slug),
+		ShortURL:  joinBaseURL(s.baseURL(), "/"+link.Slug),
 		CreatedBy: link.CreatedBy,
 		Clicks:    link.Clicks,
 		CreatedAt: formatMCPTime(link.CreatedAt),
 	}
-}
-
-// baseURLForAPI returns the base URL used when building short URLs in API
-// responses. The configured BaseURL is preferred; the request Host is taken
-// into account by the public web UI but for a JSON API the operator should
-// set BaseURL to their public hostname (e.g. https://s.example.com) so the
-// short URL is clickable from the start.
-func (s *Server) baseURLForAPI() string {
-	if s.cfg.Server.BaseURL != "" {
-		return s.cfg.Server.BaseURL
-	}
-	return "http://localhost"
 }
 
 // apiCreateLink is the REST equivalent of the MCP create_link tool. It
@@ -91,7 +64,8 @@ func (s *Server) baseURLForAPI() string {
 // slug, deduplicates identical URLs, and returns the created link.
 func (s *Server) apiCreateLink(w http.ResponseWriter, r *http.Request) {
 	if !s.apiKeyAuth(r) {
-		writeAPIError(w, http.StatusUnauthorized, "unauthorized")
+		w.Header().Set("WWW-Authenticate", `Bearer realm="Glimmer API"`)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -104,54 +78,54 @@ func (s *Server) apiCreateLink(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 
 	rawURL := strings.TrimSpace(req.URL)
 	if err := validateRedirectURL(&rawURL); err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	finalSlug := strings.ToLower(strings.TrimSpace(req.Slug))
 	if finalSlug != "" {
 		if err := validateAPISlug(finalSlug); err != nil {
-			writeAPIError(w, http.StatusBadRequest, err.Error())
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		exists, err := s.db.SlugExists(finalSlug)
 		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "database error")
+			writeJSONError(w, http.StatusInternalServerError, "database error")
 			return
 		}
 		if exists {
-			writeAPIError(w, http.StatusConflict, "slug already taken")
+			writeJSONError(w, http.StatusConflict, "slug already taken")
 			return
 		}
 	} else {
 		// Deduplicate identical URLs — matches the public web UI behaviour
 		// and keeps the link count down for API clients that retry.
 		if existing, err := s.db.GetByURL(rawURL); err == nil {
-			writeAPIJSON(w, http.StatusOK, s.toAPILink(*existing))
+			writeJSON(w, http.StatusOK, s.toAPILink(*existing))
 			return
 		}
 
 		var err error
 		finalSlug, err = s.generateUniqueSlug()
 		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 
 	link, err := s.db.Create(finalSlug, rawURL, "admin")
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to create link")
+		writeJSONError(w, http.StatusInternalServerError, "failed to create link")
 		return
 	}
 
-	writeAPIJSON(w, http.StatusCreated, s.toAPILink(*link))
+	writeJSON(w, http.StatusCreated, s.toAPILink(*link))
 }
 
 // validateAPISlug enforces the same character rules the admin web UI uses:

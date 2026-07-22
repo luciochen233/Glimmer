@@ -19,12 +19,14 @@ import (
 )
 
 type Server struct {
-	cfg         *config.Config
-	db          *db.DB
-	sessions    *sessionStore
-	limiter     *rateLimiter
-	authLimiter *rateLimiter
-	bcryptSem   chan struct{}
+	cfg           *config.Config
+	db            *db.DB
+	sessions      *sessionStore
+	limiter       *rateLimiter
+	authLimiter   *rateLimiter
+	bcryptSem     chan struct{}
+	reqlog        *requestLog
+	globalLimiter *globalRateLimiter
 }
 
 func New(cfg *config.Config, database *db.DB) *Server {
@@ -36,12 +38,14 @@ func New(cfg *config.Config, database *db.DB) *Server {
 		bcryptWorkers = 1
 	}
 	return &Server{
-		cfg:         cfg,
-		db:          database,
-		sessions:    newSessionStore(database, ttl),
-		limiter:     newRateLimiter(1 * time.Second),
-		authLimiter: newRateLimiter(1 * time.Second),
-		bcryptSem:   make(chan struct{}, bcryptWorkers),
+		cfg:           cfg,
+		db:            database,
+		sessions:      newSessionStore(database, ttl),
+		limiter:       newRateLimiter(1 * time.Second),
+		authLimiter:   newRateLimiter(1 * time.Second),
+		bcryptSem:     make(chan struct{}, bcryptWorkers),
+		reqlog:        newRequestLog(100),
+		globalLimiter: newGlobalRateLimiter(10, 10), // 10 shortens/sec globally, burst 10; admin bypasses
 	}
 }
 
@@ -93,6 +97,7 @@ func lowercasePath(next http.Handler) http.Handler {
 
 func (s *Server) Start() error {
 	initTemplates()
+	s.backfillPasteSummaries()
 
 	// Ensure upload directory exists
 	if err := os.MkdirAll(s.cfg.Upload.Dir, 0755); err != nil {
@@ -113,6 +118,7 @@ func (s *Server) Start() error {
 
 	// Public routes
 	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /shorten", s.handleShorten)
 
 	// Admin auth
@@ -140,6 +146,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /admin/uploads", s.requireAuth(s.handleAdminUploads))
 	mux.HandleFunc("POST /admin/uploads/delete/{filename}", s.requireAuth(s.requireCSRF(s.handleAdminUploadDelete)))
 	mux.HandleFunc("POST /admin/uploads/resize/{filename}", s.requireAuth(s.handleAdminUploadResize))
+	mux.HandleFunc("GET /admin/log", s.requireAuth(s.handleAdminLog))
 
 	if s.cfg.MCP.Enabled {
 		mux.HandleFunc("POST /mcp", s.handleMCP)
@@ -170,7 +177,8 @@ func (s *Server) Start() error {
 	const maxBodyBytes = 1 << 20 // 1 MB for ordinary requests
 	handler := limitConcurrency(s.cfg.Server.MaxConcurrent,
 		limitBody(maxBodyBytes,
-			lowercasePath(securityHeaders(mux))))
+			lowercasePath(securityHeaders(
+				s.logRequests(mux)))))
 
 	srv := &http.Server{
 		Addr:              addr,

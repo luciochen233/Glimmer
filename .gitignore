@@ -5,5 +5,7 @@ glimmer-arm
 data/
 node_modules/
 
+# Local runtime config — copy config.example.toml and fill in your real values.
+config.toml
 
 .claude

@@ -1,8 +1,12 @@
-# Glimmer Configuration
+# Glimmer Configuration (example)
+#
+# Copy this file to config.toml and fill in your real values. config.toml is
+# gitignored so secrets never get committed. Every field below has a safe
+# default in config.Load() EXCEPT admin.password_hash, which is required.
 
 [server]
 port = 8888
-base_url = "http://luci.ooo"
+base_url = "http://localhost:8888"
 read_timeout = "5s"
 write_timeout = "10s"
 # Only enable if behind a trusted reverse proxy that sets X-Forwarded-For.
@@ -27,4 +31,8 @@ api_key = ""
 path = "./data/urls.db"
 
 [slugs]
-length = 3
+length = 7
+
+[upload]
+dir = "./data/uploads"
+max_size_mb = 50

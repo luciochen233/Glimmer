@@ -27,6 +27,7 @@ func initTemplates() {
 		"admin_bin.html",
 		"admin_bin_edit.html",
 		"admin_uploads.html",
+		"admin_log.html",
 		"bin_view.html",
 		"bin_token.html",
 	}

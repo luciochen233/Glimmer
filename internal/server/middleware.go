@@ -143,6 +143,43 @@ func (rl *rateLimiter) Allow(ip string) bool {
 	return true
 }
 
+// globalRateLimiter is a server-wide token bucket that caps total throughput
+// across ALL clients (unlike rateLimiter, which is per-IP). A distributed
+// flood still runs into a single ceiling. tokens refill continuously at
+// refillPerS up to maxTokens (the burst size).
+type globalRateLimiter struct {
+	mu         sync.Mutex
+	tokens     float64
+	maxTokens  float64
+	refillPerS float64
+	last       time.Time
+}
+
+func newGlobalRateLimiter(ratePerSec, burst int) *globalRateLimiter {
+	return &globalRateLimiter{
+		tokens:     float64(burst),
+		maxTokens:  float64(burst),
+		refillPerS: float64(ratePerSec),
+		last:       time.Now(),
+	}
+}
+
+func (g *globalRateLimiter) Allow() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	g.tokens += now.Sub(g.last).Seconds() * g.refillPerS
+	if g.tokens > g.maxTokens {
+		g.tokens = g.maxTokens
+	}
+	g.last = now
+	if g.tokens >= 1 {
+		g.tokens--
+		return true
+	}
+	return false
+}
+
 // clientIP returns the client IP for rate-limiting purposes. Forwarded headers
 // are only honoured when trustProxy is true, because any client can set them —
 // trusting them unconditionally lets an attacker rotate X-Forwarded-For to

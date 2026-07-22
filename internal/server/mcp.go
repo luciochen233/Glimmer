@@ -415,7 +415,7 @@ func (s *Server) mcpCreatePaste(args map[string]any) (any, error) {
 	if token != "" && !validPasteName(token) {
 		return nil, fmt.Errorf("token must be alphanumeric with hyphens/underscores only")
 	}
-	paste, err := s.db.CreatePaste(name, title, content, format, token, boolArg(args, "hidden", false))
+	paste, err := s.db.CreatePaste(name, title, content, pasteSummary(content, 140), firstPasteImage(content), format, token, boolArg(args, "hidden", false))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create paste: %w", err)
 	}
@@ -455,7 +455,7 @@ func (s *Server) mcpUpdatePaste(args map[string]any) (any, error) {
 	if token != "" && !validPasteName(token) {
 		return nil, fmt.Errorf("token must be alphanumeric with hyphens/underscores only")
 	}
-	if err := s.db.UpdatePaste(id, name, title, content, format, token, hidden); err != nil {
+	if err := s.db.UpdatePaste(id, name, title, content, pasteSummary(content, 140), firstPasteImage(content), format, token, hidden); err != nil {
 		return nil, fmt.Errorf("failed to update paste: %w", err)
 	}
 	updated, err := s.db.GetPasteByID(id)

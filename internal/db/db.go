@@ -11,15 +11,17 @@ import (
 )
 
 type Paste struct {
-	ID        int64
-	Name      string
-	Title     string
-	Content   string
-	Format    string
-	Token     string // empty = disabled
-	Hidden    bool   // return 404 instead of token prompt
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         int64
+	Name       string
+	Title      string
+	Content    string
+	Summary    string
+	FirstImage string
+	Format     string
+	Token      string // empty = disabled
+	Hidden     bool   // return 404 instead of token prompt
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type Link struct {
@@ -102,12 +104,26 @@ func migrate(conn *sql.DB) error {
 	conn.Exec(`ALTER TABLE links ADD COLUMN created_by TEXT NOT NULL DEFAULT 'anonymous'`)
 	conn.Exec(`ALTER TABLE links ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0`)
 	conn.Exec(`ALTER TABLE pastes ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`)
+	// summary + first_image let the admin paste grid render without loading
+	// paste content (a real memory cliff on small hardware).
+	conn.Exec(`ALTER TABLE pastes ADD COLUMN summary TEXT NOT NULL DEFAULT ''`)
+	conn.Exec(`ALTER TABLE pastes ADD COLUMN first_image TEXT NOT NULL DEFAULT ''`)
+	// width + height cache decoded image dimensions so the uploads admin page
+	// does not have to re-decode every image header on each load.
+	conn.Exec(`ALTER TABLE uploads ADD COLUMN width INTEGER NOT NULL DEFAULT 0`)
+	conn.Exec(`ALTER TABLE uploads ADD COLUMN height INTEGER NOT NULL DEFAULT 0`)
 
 	return nil
 }
 
 func (d *DB) Close() error {
 	return d.conn.Close()
+}
+
+// Ping verifies the database connection is usable. Used by the health endpoint.
+func (d *DB) Ping() error {
+	var one int
+	return d.conn.QueryRow("SELECT 1").Scan(&one)
 }
 
 func (d *DB) Create(slug, url, createdBy string) (*Link, error) {
@@ -164,6 +180,18 @@ func (d *DB) ListByCreator(createdBy string) ([]Link, error) {
 	return scanLinks(rows)
 }
 
+// ListRecentByCreator returns the most recent links by creator, capped at
+// limit. Used by the admin dashboard to bound memory without losing the
+// latest activity.
+func (d *DB) ListRecentByCreator(createdBy string, limit int) ([]Link, error) {
+	rows, err := d.conn.Query("SELECT id, slug, url, created_by, clicks, created_at FROM links WHERE created_by = ? ORDER BY id DESC LIMIT ?", createdBy, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanLinks(rows)
+}
+
 func (d *DB) Update(id int64, slug, url string) error {
 	_, err := d.conn.Exec("UPDATE links SET slug = ?, url = ? WHERE id = ?", slug, url, id)
 	return err
@@ -201,7 +229,7 @@ func scanLinks(rows *sql.Rows) ([]Link, error) {
 
 // ---- Paste CRUD ----
 
-func (d *DB) CreatePaste(name, title, content, format, token string, hidden bool) (*Paste, error) {
+func (d *DB) CreatePaste(name, title, content, summary, firstImage, format, token string, hidden bool) (*Paste, error) {
 	var tokenVal interface{}
 	if token != "" {
 		tokenVal = token
@@ -211,15 +239,15 @@ func (d *DB) CreatePaste(name, title, content, format, token string, hidden bool
 		hiddenVal = 1
 	}
 	res, err := d.conn.Exec(
-		"INSERT INTO pastes (name, title, content, format, token, hidden) VALUES (?, ?, ?, ?, ?, ?)",
-		name, title, content, format, tokenVal, hiddenVal,
+		"INSERT INTO pastes (name, title, content, summary, first_image, format, token, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		name, title, content, summary, firstImage, format, tokenVal, hiddenVal,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
 	now := time.Now()
-	return &Paste{ID: id, Name: name, Title: title, Content: content, Format: format, Token: token, Hidden: hidden, CreatedAt: now, UpdatedAt: now}, nil
+	return &Paste{ID: id, Name: name, Title: title, Content: content, Summary: summary, FirstImage: firstImage, Format: format, Token: token, Hidden: hidden, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (d *DB) GetPasteByName(name string) (*Paste, error) {
@@ -254,7 +282,7 @@ func (d *DB) ListPastes() ([]Paste, error) {
 	return pastes, rows.Err()
 }
 
-func (d *DB) UpdatePaste(id int64, name, title, content, format, token string, hidden bool) error {
+func (d *DB) UpdatePaste(id int64, name, title, content, summary, firstImage, format, token string, hidden bool) error {
 	var tokenVal interface{}
 	if token != "" {
 		tokenVal = token
@@ -264,8 +292,8 @@ func (d *DB) UpdatePaste(id int64, name, title, content, format, token string, h
 		hiddenVal = 1
 	}
 	_, err := d.conn.Exec(
-		"UPDATE pastes SET name=?, title=?, content=?, format=?, token=?, hidden=?, updated_at=datetime('now') WHERE id=?",
-		name, title, content, format, tokenVal, hiddenVal, id,
+		"UPDATE pastes SET name=?, title=?, content=?, summary=?, first_image=?, format=?, token=?, hidden=?, updated_at=datetime('now') WHERE id=?",
+		name, title, content, summary, firstImage, format, tokenVal, hiddenVal, id,
 	)
 	return err
 }
@@ -279,6 +307,59 @@ func (d *DB) PasteNameExists(name string) (bool, error) {
 	var count int
 	err := d.conn.QueryRow("SELECT COUNT(*) FROM pastes WHERE name = ?", name).Scan(&count)
 	return count > 0, err
+}
+
+// ListPasteSummaries returns paste rows WITHOUT content — summary and
+// first_image stand in for it on the grid. Omitting content is what keeps the
+// admin paste page cheap to load. Ordered by most-recently-updated, paginated.
+func (d *DB) ListPasteSummaries(limit, offset int) ([]Paste, error) {
+	rows, err := d.conn.Query(
+		"SELECT id, name, title, COALESCE(summary,''), COALESCE(first_image,''), format, COALESCE(token,''), hidden, created_at, updated_at FROM pastes ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+		limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var pastes []Paste
+	for rows.Next() {
+		var p Paste
+		var hidden int
+		var created, updated string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Title, &p.Summary, &p.FirstImage, &p.Format, &p.Token, &hidden, &created, &updated); err != nil {
+			return nil, err
+		}
+		p.Hidden = hidden != 0
+		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", created)
+		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updated)
+		pastes = append(pastes, p)
+	}
+	return pastes, rows.Err()
+}
+
+// PasteSummariesMissing returns id+content for pastes that predate the
+// summary/first_image columns, for one-time backfill on startup.
+func (d *DB) PasteSummariesMissing() ([]Paste, error) {
+	rows, err := d.conn.Query("SELECT id, content FROM pastes WHERE summary = '' AND content != ''")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Paste
+	for rows.Next() {
+		var p Paste
+		if err := rows.Scan(&p.ID, &p.Content); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// SetPasteSummaryAndImage fills the summary + first_image columns for a paste.
+func (d *DB) SetPasteSummaryAndImage(id int64, summary, firstImage string) error {
+	_, err := d.conn.Exec("UPDATE pastes SET summary = ?, first_image = ? WHERE id = ?", summary, firstImage, id)
+	return err
 }
 
 func scanPaste(row *sql.Row) (*Paste, error) {
@@ -362,6 +443,39 @@ func (d *DB) ListUploadNames() (map[string]string, error) {
 		names[f] = n
 	}
 	return names, rows.Err()
+}
+
+// UploadMeta bundles the cached metadata the uploads admin page needs for one
+// file, so it can render without re-decoding image headers.
+type UploadMeta struct {
+	OriginalName string
+	Width        int
+	Height       int
+}
+
+// ListUploadMeta returns original name + cached image dimensions per filename.
+func (d *DB) ListUploadMeta() (map[string]UploadMeta, error) {
+	rows, err := d.conn.Query("SELECT filename, original_name, width, height FROM uploads")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]UploadMeta)
+	for rows.Next() {
+		var f, n string
+		var w, h int
+		if err := rows.Scan(&f, &n, &w, &h); err != nil {
+			return nil, err
+		}
+		out[f] = UploadMeta{OriginalName: n, Width: w, Height: h}
+	}
+	return out, rows.Err()
+}
+
+// SetUploadDims caches decoded image dimensions for an upload.
+func (d *DB) SetUploadDims(filename string, width, height int) error {
+	_, err := d.conn.Exec("UPDATE uploads SET width = ?, height = ? WHERE filename = ?", width, height, filename)
+	return err
 }
 
 func (d *DB) DeleteUpload(filename string) error {

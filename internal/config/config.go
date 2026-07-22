@@ -90,7 +90,7 @@ func Load(path string) (*Config, error) {
 			Path: "./data/urls.db",
 		},
 		Slugs: SlugConfig{
-			Length: 3,
+			Length: 7,
 		},
 		Upload: UploadConfig{
 			Dir:     "./data/uploads",

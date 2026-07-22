@@ -1,0 +1,37 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>Request Log</h1>
+    <p class="text-muted">Last {{len .LogEntries}} non-asset requests, in-RAM only, newest first. Static, thumbnail, and healthz traffic is excluded.</p>
+</div>
+
+<div class="card" style="padding:0;overflow:auto">
+    <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:0.85rem">
+        <thead>
+            <tr style="text-align:left;border-bottom:1px solid var(--color-border)">
+                <th style="padding:0.5rem 0.75rem">Time</th>
+                <th style="padding:0.5rem 0.75rem">Method</th>
+                <th style="padding:0.5rem 0.75rem">Path</th>
+                <th style="padding:0.5rem 0.75rem">Status</th>
+                <th style="padding:0.5rem 0.75rem">Took</th>
+                <th style="padding:0.5rem 0.75rem">IP</th>
+                <th style="padding:0.5rem 0.75rem">Actor</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .LogEntries}}
+            <tr style="border-bottom:1px solid var(--color-border)">
+                <td style="padding:0.4rem 0.75rem">{{.Time.Format "15:04:05"}}</td>
+                <td style="padding:0.4rem 0.75rem">{{.Method}}</td>
+                <td style="padding:0.4rem 0.75rem">{{.Path}}</td>
+                <td style="padding:0.4rem 0.75rem">{{.Status}}</td>
+                <td style="padding:0.4rem 0.75rem">{{.DurationMS}}ms</td>
+                <td style="padding:0.4rem 0.75rem">{{.IP}}</td>
+                <td style="padding:0.4rem 0.75rem">{{.Actor}}</td>
+            </tr>
+        {{else}}
+            <tr><td colspan="7" class="text-muted" style="padding:1rem 0.75rem">No requests logged yet.</td></tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

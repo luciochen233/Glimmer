@@ -462,6 +462,18 @@ sudo systemctl status nginx
 
 If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limiting since Cloudflare controls the header. For direct-to-internet deployments without a trusted proxy, clients could spoof `X-Forwarded-For` to bypass IP rate limits — see "Possible Future Improvements".
 
+#### Enabling HSTS (HTTP Strict-Transport-Security)
+
+HSTS tells browsers to always use HTTPS for this domain. Because Glimmer sits behind Cloudflare, enable HSTS at Cloudflare's edge rather than in the app (the origin connection from Cloudflare may be plain HTTP depending on your SSL mode, so the app is not a reliable place to emit it):
+
+1. **SSL/TLS → Overview**: set SSL mode to **Full (strict)**. HSTS requires the origin to be reachable over HTTPS.
+2. **SSL/TLS → Edge Certificates**: enable **Always Use HTTPS**.
+3. **SSL/TLS → Edge Certificates → HTTP Strict Transport Security (HSTS)**: start with a short `max-age` (e.g. `300` / 5 minutes) and verify the site still works over HTTPS. Once confirmed, raise `max-age` to `31536000` (1 year). Only enable **Preload** and "Apply to subdomains" if you actually intend those.
+
+> Caveat: once a browser accepts HSTS with a long `max-age` (especially with Preload), it will refuse plain HTTP for that domain until the age expires. This is mildly one-way — fine for a permanently-HTTPS domain like luci.ooo.
+
+Verify: `curl -I https://luci.ooo` should return a `strict-transport-security` header.
+
 ---
 
 ## URL Routes

@@ -67,6 +67,14 @@
 </div>
 {{end}}
 
+{{if or .HasPrev .HasNext}}
+<div style="display:flex;gap:1rem;align-items:center;justify-content:center;margin:1.5rem 0">
+    {{if .HasPrev}}<a class="btn btn-secondary btn-sm" href="/admin/bin?page={{.PrevPage}}">← Prev</a>{{end}}
+    <span class="text-muted">Page {{.Page}}</span>
+    {{if .HasNext}}<a class="btn btn-secondary btn-sm" href="/admin/bin?page={{.NextPage}}">Next →</a>{{end}}
+</div>
+{{end}}
+
 <!-- Paste preview dialog -->
 <dialog id="preview-dialog" class="preview-dialog">
     <div class="preview-head">

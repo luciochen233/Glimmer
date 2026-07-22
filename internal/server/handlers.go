@@ -16,6 +16,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -52,10 +53,17 @@ type pageData struct {
 	Pastes      any
 	PasteBody   template.HTML
 	Uploads     any
+	LogEntries  any
 	LoggedIn    bool
-	ActiveNav   string // "links" | "pastes" | "uploads" | "shorten" — for sidebar highlight
+	ActiveNav   string // "links" | "pastes" | "uploads" | "shorten" | "log" — for sidebar highlight
 	CSRFToken   string
 	UploadMaxMB int64
+	// Pagination for list pages (1-based).
+	Page     int
+	PrevPage int
+	NextPage int
+	HasPrev  bool
+	HasNext  bool
 }
 
 type UploadInfo struct {
@@ -110,7 +118,7 @@ func makeQRSVG(text string, size int) template.HTML {
 
 func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	fullURL := s.baseURL(r) + "/" + slug
+	fullURL := s.baseURL() + "/" + slug
 	svg := makeQRSVG(fullURL, 200)
 	if svg == "" {
 		http.Error(w, "QR generation failed", http.StatusInternalServerError)
@@ -120,19 +128,12 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(svg))
 }
 
-func (s *Server) baseURL(r *http.Request) string {
-	host := r.Host
-	if host == "" {
-		return s.cfg.Server.BaseURL
-	}
-	// X-Forwarded-Proto is client-settable, so it is only honoured behind a
-	// trusted proxy (same rule as X-Forwarded-For). Otherwise fall back to
-	// the configured base URL's scheme.
-	proto := "http"
-	if s.isHTTPS(r) {
-		proto = "https"
-	}
-	return proto + "://" + host
+// baseURL returns the configured base URL for absolute links (short URLs, QR
+// codes). It is pinned to the config rather than the request Host so a forged
+// Host header (e.g. someone reaching the origin directly, bypassing the CDN)
+// cannot redirect users to an attacker-controlled domain.
+func (s *Server) baseURL() string {
+	return s.cfg.Server.BaseURL
 }
 
 // isHTTPS reports whether the request should be treated as HTTPS: either the
@@ -145,13 +146,26 @@ func (s *Server) isHTTPS(r *http.Request) bool {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "index.html", pageData{BaseURL: s.baseURL(r), LoggedIn: s.isLoggedIn(r), CSRFToken: s.csrfToken(w, r)})
+	renderTemplate(w, "index.html", pageData{BaseURL: s.baseURL(), LoggedIn: s.isLoggedIn(r), CSRFToken: s.csrfToken(w, r)})
+}
+
+// handleHealthz is a public liveness/readiness probe: it confirms the SQLite
+// connection is usable and returns 200, or 503 if the DB is unreachable. Used
+// by uptime monitors and reverse-proxy health checks.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if err := s.db.Ping(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	if !s.isLoggedIn(r) {
 		ip := clientIP(r, s.cfg.Server.TrustProxy)
-		if !s.limiter.Allow(ip) {
+		// Per-IP cap slows a single attacker; globalLimiter is the server-wide
+		// ceiling that a distributed flood cannot exceed. Admin bypasses both.
+		if !s.limiter.Allow(ip) || !s.globalLimiter.Allow() {
 			s.renderIndex(w, r, "Too many requests. Please wait a moment.", "", "")
 			return
 		}
@@ -207,7 +221,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Return existing link if this URL was shortened before
 		if existing, err := s.db.GetByURL(rawURL); err == nil {
-			shortURL := s.baseURL(r) + "/" + existing.Slug
+			shortURL := s.baseURL() + "/" + existing.Slug
 			s.renderIndex(w, r, "", shortURL, rawURL)
 			return
 		}
@@ -240,7 +254,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := s.baseURL(r) + "/" + finalSlug
+	shortURL := s.baseURL() + "/" + finalSlug
 	s.renderIndex(w, r, "", shortURL, rawURL)
 }
 
@@ -250,7 +264,7 @@ func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request, errMsg, sho
 		qrsvg = makeQRSVG(shortURL, 180)
 	}
 	renderTemplate(w, "index.html", pageData{
-		BaseURL:     s.baseURL(r),
+		BaseURL:     s.baseURL(),
 		Error:       errMsg,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
@@ -270,7 +284,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	link, err := s.db.GetBySlug(sl)
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL(r)})
+		renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL()})
 		return
 	}
 	if err != nil {
@@ -284,14 +298,16 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.db.IncrementClicks(sl)
+	if err := s.db.IncrementClicks(sl); err != nil {
+		log.Printf("increment clicks %q: %v", sl, err)
+	}
 	http.Redirect(w, r, link.URL, http.StatusMovedPermanently)
 }
 
 // Admin handlers
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "admin_login.html", pageData{BaseURL: s.baseURL(r), CSRFToken: s.csrfToken(w, r)})
+	renderTemplate(w, "admin_login.html", pageData{BaseURL: s.baseURL(), CSRFToken: s.csrfToken(w, r)})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +375,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, nav string) pageData {
 	return pageData{
-		BaseURL:     s.baseURL(r),
+		BaseURL:     s.baseURL(),
 		LoggedIn:    true,
 		ActiveNav:   nav,
 		CSRFToken:   s.csrfToken(w, r),
@@ -368,12 +384,14 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, nav string) p
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
-	adminLinks, err := s.db.ListByCreator("admin")
+	// Cap each table at the most recent 500 rows; link rows are small, but this
+	// keeps the dashboard bounded as the link count grows.
+	adminLinks, err := s.db.ListRecentByCreator("admin", 500)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-	anonLinks, err := s.db.ListByCreator("anonymous")
+	anonLinks, err := s.db.ListRecentByCreator("anonymous", 500)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -459,7 +477,9 @@ func (s *Server) handleAdminDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.db.Delete(id)
+	if err := s.db.Delete(id); err != nil {
+		log.Printf("delete link %d: %v", id, err)
+	}
 
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -470,6 +490,13 @@ func (s *Server) isLoggedIn(r *http.Request) bool {
 		return false
 	}
 	return s.sessions.Valid(cookie.Value)
+}
+
+// handleAdminLog renders the in-RAM request log (newest first).
+func (s *Server) handleAdminLog(w http.ResponseWriter, r *http.Request) {
+	d := s.adminPage(w, r, "log")
+	d.LogEntries = s.reqlog.Recent()
+	renderTemplate(w, "admin_log.html", d)
 }
 
 func formatTime(t time.Time) string {
@@ -485,7 +512,7 @@ func (s *Server) handleBinQR(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	fullURL := s.baseURL(r) + "/bin/" + paste.Name
+	fullURL := s.baseURL() + "/bin/" + paste.Name
 	if r.URL.Query().Get("full") == "1" && paste.Token != "" {
 		fullURL += "/" + paste.Token
 	}
@@ -516,7 +543,7 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 	if paste.Token != "" && subtle.ConstantTimeCompare([]byte(strings.ToLower(paste.Token)), []byte(strings.ToLower(providedToken))) != 1 {
 		if paste.Hidden {
 			w.WriteHeader(http.StatusNotFound)
-			renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL(r)})
+			renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL()})
 			return
 		}
 		errMsg := ""
@@ -525,7 +552,7 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusForbidden)
 		renderTemplate(w, "bin_token.html", pageData{
-			BaseURL: s.baseURL(r),
+			BaseURL: s.baseURL(),
 			Error:   errMsg,
 		})
 		return
@@ -549,7 +576,7 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 	// (sidebar / public header / toolbar / card wrapper) so only the paste body renders.
 	if r.URL.Query().Get("embed") == "1" {
 		renderTemplate(w, "bin_view_embed.html", pageData{
-			BaseURL:   s.baseURL(r),
+			BaseURL:   s.baseURL(),
 			Paste:     paste,
 			PasteBody: body,
 		})
@@ -557,7 +584,7 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderTemplate(w, "bin_view.html", pageData{
-		BaseURL:   s.baseURL(r),
+		BaseURL:   s.baseURL(),
 		Paste:     paste,
 		PasteBody: body,
 		LoggedIn:  s.isLoggedIn(r),
@@ -565,22 +592,61 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminBin(w http.ResponseWriter, r *http.Request) {
-	pastes, err := s.db.ListPastes()
+	page := parsePage(r.URL.Query().Get("page"))
+	// Fetch one extra row to detect a next page without a separate COUNT query.
+	pastes, err := s.db.ListPasteSummaries(pastePageSize+1, (page-1)*pastePageSize)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
+	hasNext := len(pastes) > pastePageSize
+	if hasNext {
+		pastes = pastes[:pastePageSize]
+	}
+	// paste summaries carry their own Summary + FirstImage, so the grid renders
+	// without ever loading paste content into RAM.
 	cards := make([]pasteCard, 0, len(pastes))
 	for _, p := range pastes {
 		cards = append(cards, pasteCard{
 			Paste:    p,
-			Summary:  pasteSummary(p.Content, 140),
-			ThumbURL: thumbURLFor(firstPasteImage(p.Content)),
+			ThumbURL: thumbURLFor(p.FirstImage),
 		})
 	}
 	d := s.adminPage(w, r, "pastes")
 	d.Pastes = cards
+	d.Page = page
+	d.PrevPage = page - 1
+	d.NextPage = page + 1
+	d.HasPrev = page > 1
+	d.HasNext = hasNext
 	renderTemplate(w, "admin_bin.html", d)
+}
+
+const pastePageSize = 50
+
+// parsePage parses a 1-based page number from a query string, defaulting to 1.
+func parsePage(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// backfillPasteSummaries computes summary + first_image for pastes that
+// predate those columns. Idempotent — only fills blanks — and cheap, so it is
+// safe to run on every startup.
+func (s *Server) backfillPasteSummaries() {
+	missing, err := s.db.PasteSummariesMissing()
+	if err != nil {
+		log.Printf("paste summary backfill: query failed: %v", err)
+		return
+	}
+	for _, p := range missing {
+		if err := s.db.SetPasteSummaryAndImage(p.ID, pasteSummary(p.Content, 140), firstPasteImage(p.Content)); err != nil {
+			log.Printf("paste summary backfill: id=%d: %v", p.ID, err)
+		}
+	}
 }
 
 func (s *Server) handleAdminBinNew(w http.ResponseWriter, r *http.Request) {
@@ -638,7 +704,7 @@ func (s *Server) handleAdminBinCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := s.db.CreatePaste(name, title, content, format, token, hidden); err != nil {
+	if _, err := s.db.CreatePaste(name, title, content, pasteSummary(content, 140), firstPasteImage(content), format, token, hidden); err != nil {
 		newErrPage("Failed to create paste")
 		return
 	}
@@ -725,7 +791,7 @@ func (s *Server) handleAdminBinSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.db.UpdatePaste(id, name, title, content, format, token, hidden); err != nil {
+	if err := s.db.UpdatePaste(id, name, title, content, pasteSummary(content, 140), firstPasteImage(content), format, token, hidden); err != nil {
 		editErrPage("Failed to save: name may already be taken")
 		return
 	}
@@ -738,7 +804,9 @@ func (s *Server) handleAdminBinDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.db.DeletePaste(id)
+	if err := s.db.DeletePaste(id); err != nil {
+		log.Printf("delete paste %d: %v", id, err)
+	}
 	http.Redirect(w, r, "/admin/bin", http.StatusSeeOther)
 }
 
@@ -769,10 +837,14 @@ func formatBytes(n int64) string {
 	}
 }
 
-func jsonError(w http.ResponseWriter, msg string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
 }
 
 func scaleImage(src image.Image, maxDim int) image.Image {
@@ -842,6 +914,18 @@ func decodeImageBounded(path string) (image.Image, error) {
 	}
 	src, _, err := image.Decode(f)
 	return src, err
+}
+
+// imageConfig reads only the image header to get dimensions. Cheap (no full
+// decode), used to cache width/height on upload.
+func imageConfig(path string) (image.Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return image.Config{}, err
+	}
+	defer f.Close()
+	c, _, err := image.DecodeConfig(f)
+	return c, err
 }
 
 // ---- Thumbnails ----
@@ -922,7 +1006,6 @@ func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request) {
 
 type pasteCard struct {
 	db.Paste
-	Summary  string
 	ThumbURL string // thumbnail URL for the first image, or "" if none
 }
 
@@ -1044,7 +1127,7 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names, _ := s.db.ListUploadNames()
+	names, _ := s.db.ListUploadMeta()
 
 	var uploads []UploadInfo
 	for _, entry := range entries {
@@ -1060,9 +1143,10 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(name))
+		m := names[name]
 		ui := UploadInfo{
 			Filename:     name,
-			OriginalName: names[name],
+			OriginalName: m.OriginalName,
 			Size:         info.Size(),
 			SizeHuman:    formatBytes(info.Size()),
 			URL:          "/uploads/" + name,
@@ -1071,10 +1155,13 @@ func (s *Server) handleAdminUploads(w http.ResponseWriter, r *http.Request) {
 			ModTime:      info.ModTime(),
 		}
 		if ui.IsImage {
-			if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
+			if m.Width > 0 && m.Height > 0 {
+				ui.Width, ui.Height = m.Width, m.Height
+			} else if f, err := os.Open(filepath.Join(s.cfg.Upload.Dir, name)); err == nil {
+				// Lazy backfill for rows that predate the width/height cache.
 				if cfg, _, err := image.DecodeConfig(f); err == nil {
-					ui.Width = cfg.Width
-					ui.Height = cfg.Height
+					ui.Width, ui.Height = cfg.Width, cfg.Height
+					_ = s.db.SetUploadDims(name, cfg.Width, cfg.Height)
 				}
 				f.Close()
 			}
@@ -1102,7 +1189,9 @@ func (s *Server) handleAdminUploadDelete(w http.ResponseWriter, r *http.Request)
 	}
 	os.Remove(filepath.Join(s.cfg.Upload.Dir, filename))
 	os.Remove(s.thumbPath(filename))
-	s.db.DeleteUpload(filename)
+	if err := s.db.DeleteUpload(filename); err != nil {
+		log.Printf("delete upload %q: %v", filename, err)
+	}
 	http.Redirect(w, r, "/admin/uploads", http.StatusSeeOther)
 }
 
@@ -1112,34 +1201,34 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 	// is tiny — cap it before the form parse triggered by verifyCSRF.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if !verifyCSRF(r) {
-		jsonError(w, "Invalid CSRF token", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
 	filename := r.PathValue("filename")
 	if !validUploadFilename(filename) {
-		jsonError(w, "Invalid filename", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid filename")
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(filename))
 	if ext != ".png" && ext != ".jpg" {
-		jsonError(w, "Only PNG and JPEG can be resized", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Only PNG and JPEG can be resized")
 		return
 	}
 	maxDim, err := strconv.Atoi(r.FormValue("max_dim"))
 	if err != nil || maxDim < 64 || maxDim > 8192 {
-		jsonError(w, "max_dim must be between 64 and 8192", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "max_dim must be between 64 and 8192")
 		return
 	}
 
 	path := filepath.Join(s.cfg.Upload.Dir, filename)
 	if _, err := os.Stat(path); err != nil {
-		jsonError(w, "File not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "File not found")
 		return
 	}
 	src, err := decodeImageBounded(path)
 	if err != nil {
-		jsonError(w, "Failed to decode image: "+err.Error(), http.StatusUnprocessableEntity)
+		writeJSONError(w, http.StatusUnprocessableEntity, "Failed to decode image: "+err.Error())
 		return
 	}
 
@@ -1148,7 +1237,7 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 	tmpPath := path + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
-		jsonError(w, "Failed to write file", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to write file")
 		return
 	}
 	var encErr error
@@ -1160,12 +1249,12 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 	out.Close()
 	if encErr != nil {
 		os.Remove(tmpPath)
-		jsonError(w, "Failed to encode image", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode image")
 		return
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
-		jsonError(w, "Failed to save resized image", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save resized image")
 		return
 	}
 	os.Remove(s.thumbPath(filename)) // invalidate cached thumbnail; regenerated on next view
@@ -1176,8 +1265,8 @@ func (s *Server) handleAdminUploadResize(w http.ResponseWriter, r *http.Request)
 		newSize = info.Size()
 	}
 	b := dst.Bounds()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = s.db.SetUploadDims(filename, b.Dx(), b.Dy()) // keep cached dims in sync
+	writeJSON(w, http.StatusOK, map[string]any{
 		"size_human": formatBytes(newSize),
 		"width":      b.Dx(),
 		"height":     b.Dy(),
@@ -1208,31 +1297,24 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// "Invalid CSRF token" 403. Parsing here lets us report the real cause (413).
 	// A small maxMemory keeps large uploads spilling to temp files, not RAM (RPi Zero).
 	if err := r.ParseMultipartForm(4 << 20); err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("File too large (max %d MB)", s.cfg.Upload.MaxSize)})
+			writeJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("File too large (max %d MB)", s.cfg.Upload.MaxSize))
 		} else {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid upload"})
+			writeJSONError(w, http.StatusBadRequest, "Invalid upload")
 		}
 		return
 	}
 
 	// Verify CSRF (form already parsed; no body re-read).
 	if !verifyCSRF(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid CSRF token"})
+		writeJSONError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No file provided"})
+		writeJSONError(w, http.StatusBadRequest, "No file provided")
 		return
 	}
 	defer file.Close()
@@ -1241,9 +1323,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	head := make([]byte, 512)
 	n, err := file.Read(head)
 	if err != nil && err != io.EOF {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to read file"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to read file")
 		return
 	}
 	head = head[:n]
@@ -1251,9 +1331,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	mimeType := http.DetectContentType(head)
 	ext, ok := allowedMIME[mimeType]
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnsupportedMediaType)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Only PNG, JPEG, GIF, and WebP images are allowed"})
+		writeJSONError(w, http.StatusUnsupportedMediaType, "Only PNG, JPEG, GIF, and WebP images are allowed")
 		return
 	}
 
@@ -1266,9 +1344,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	destPath := filepath.Join(s.cfg.Upload.Dir, filename)
 	out, err := os.Create(destPath)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
 	defer out.Close()
@@ -1276,26 +1352,24 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Write the head bytes we already read, then copy the rest
 	if _, err := out.Write(head); err != nil {
 		os.Remove(destPath)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
 	if _, err := io.Copy(out, file); err != nil {
 		os.Remove(destPath)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save file"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
 
 	displayName := sanitizeDisplayFilename(header.Filename)
 	s.db.RecordUpload(filename, displayName)
 	_ = s.generateThumbnail(filename) // best-effort; lazily regenerated on first view otherwise
+	if cfg, err := imageConfig(filepath.Join(s.cfg.Upload.Dir, filename)); err == nil {
+		_ = s.db.SetUploadDims(filename, cfg.Width, cfg.Height)
+	}
 
 	imgURL := "/uploads/" + filename
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"url":      imgURL,
 		"filename": displayName,
 		"markdown": "![](" + imgURL + ")",
@@ -1318,28 +1392,28 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(4 << 20); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "File too large (max 5 MB)")
 		} else {
-			jsonError(w, "Invalid upload", http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Invalid upload")
 		}
 		return
 	}
 
 	if !verifyCSRF(r) {
-		jsonError(w, "Invalid CSRF token", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		jsonError(w, "No file provided", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "No file provided")
 		return
 	}
 	defer file.Close()
 
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
 	if ext == "" || !validExtRe.MatchString(ext) {
-		jsonError(w, "Invalid file extension", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid file extension")
 		return
 	}
 
@@ -1350,7 +1424,7 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	destPath := filepath.Join(s.cfg.Upload.Dir, filename)
 	out, err := os.Create(destPath)
 	if err != nil {
-		jsonError(w, "Failed to save file", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
 	defer out.Close()
@@ -1358,12 +1432,12 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	written, err := io.Copy(out, file)
 	if err != nil {
 		os.Remove(destPath)
-		jsonError(w, "Failed to save file", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save file")
 		return
 	}
 	if written > maxFileBytes {
 		os.Remove(destPath)
-		jsonError(w, "File too large (max 5 MB)", http.StatusRequestEntityTooLarge)
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "File too large (max 5 MB)")
 		return
 	}
 
@@ -1374,8 +1448,7 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.db.RecordUpload(filename, displayName)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"url":      fileURL,
 		"filename": displayName,
 		"markdown": "[" + displayName + "](" + fileURL + ")",
@@ -1405,7 +1478,6 @@ func sanitizeDisplayFilename(name string) string {
 	return s
 }
 
-var validPasteNameRe = strings.NewReplacer() // placeholder — use inline check below
 func validPasteName(name string) bool {
 	if len(name) == 0 || len(name) > 64 {
 		return false
