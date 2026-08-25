@@ -146,7 +146,18 @@ func (s *Server) isHTTPS(r *http.Request) bool {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w, "index.html", pageData{BaseURL: s.baseURL(), LoggedIn: s.isLoggedIn(r), CSRFToken: s.csrfToken(w, r)})
+	d := pageData{BaseURL: s.baseURL(), LoggedIn: s.isLoggedIn(r), CSRFToken: s.csrfToken(w, r)}
+	// PRG landing: POST /shorten redirects here with ?slug=... so a refresh
+	// never re-submits the form. Unknown slugs render the plain page.
+	if sl := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("slug"))); sl != "" {
+		if link, err := s.db.GetBySlug(sl); err == nil {
+			shortURL := s.baseURL() + "/" + link.Slug
+			d.ShortURL = shortURL
+			d.OriginalURL = link.URL
+			d.QRSVG = makeQRSVG(shortURL, 180)
+		}
+	}
+	renderTemplate(w, "index.html", d)
 }
 
 // handleHealthz is a public liveness/readiness probe: it confirms the SQLite
@@ -221,8 +232,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Return existing link if this URL was shortened before
 		if existing, err := s.db.GetByURL(rawURL); err == nil {
-			shortURL := s.baseURL() + "/" + existing.Slug
-			s.renderIndex(w, r, "", shortURL, rawURL)
+			http.Redirect(w, r, "/?slug="+url.QueryEscape(existing.Slug), http.StatusSeeOther)
 			return
 		}
 
@@ -254,8 +264,9 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := s.baseURL() + "/" + finalSlug
-	s.renderIndex(w, r, "", shortURL, rawURL)
+	// Redirect so the result page is a GET — refreshing it no longer prompts
+	// to re-submit the form (POST-Redirect-GET).
+	http.Redirect(w, r, "/?slug="+url.QueryEscape(finalSlug), http.StatusSeeOther)
 }
 
 func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request, errMsg, shortURL, originalURL string) {

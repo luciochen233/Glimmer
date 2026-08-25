@@ -42,12 +42,13 @@ func webTestServer(t *testing.T, mutate func(*config.Config)) *Server {
 		mutate(cfg)
 	}
 	return &Server{
-		cfg:         cfg,
-		db:          database,
-		sessions:    newSessionStore(database, time.Hour),
-		limiter:     newRateLimiter(0),
-		authLimiter: newRateLimiter(0),
-		bcryptSem:   make(chan struct{}, 1),
+		cfg:           cfg,
+		db:            database,
+		sessions:      newSessionStore(database, time.Hour),
+		limiter:       newRateLimiter(0),
+		authLimiter:   newRateLimiter(0),
+		bcryptSem:     make(chan struct{}, 1),
+		globalLimiter: newGlobalRateLimiter(10, 10),
 	}
 }
 
@@ -220,6 +221,42 @@ func TestCSRFCookieSecureFollowsBaseURL(t *testing.T) {
 	}
 	if !csrf.Secure {
 		t.Fatal("csrf cookie must be Secure when base_url is https")
+	}
+}
+
+// ---- Shorten (POST-Redirect-GET) ----
+
+func TestShortenRedirectsToSlugLanding(t *testing.T) {
+	s := webTestServer(t, nil)
+
+	form := url.Values{"url": {"https://example.com/prg-test"}}
+	req := httptest.NewRequest(http.MethodPost, "/shorten", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	s.handleShorten(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/?slug=") {
+		t.Fatalf("expected redirect to /?slug=..., got %q", loc)
+	}
+
+	// The landing page must render the result card for that slug.
+	slug := strings.TrimPrefix(loc, "/?slug=")
+	req2 := httptest.NewRequest(http.MethodGet, loc, nil)
+	rec2 := httptest.NewRecorder()
+	s.handleIndex(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("landing: expected 200, got %d", rec2.Code)
+	}
+	body := rec2.Body.String()
+	if !strings.Contains(body, "http://localhost:8888/"+slug) {
+		t.Fatal("landing page should show the short URL")
+	}
+	if !strings.Contains(body, "https://example.com/prg-test") {
+		t.Fatal("landing page should show the original URL")
 	}
 }
 

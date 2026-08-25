@@ -1059,6 +1059,254 @@ fieldset label {
     height: auto;
 }
 
+/* Result section — one card holding the original URL, share card, and preview */
+.qr-result {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.25rem;
+}
+
+/* Collapsed history item — two-line summary box */
+.qr-history-item {
+    position: relative;
+}
+
+.qr-result.collapsed {
+    padding: 0.65rem 0.95rem;
+    cursor: pointer;
+    gap: 0;
+}
+
+.qr-result.collapsed .qr-live {
+    display: none;
+}
+
+.qr-result:not(.collapsed) .qr-collapsed {
+    display: none;
+}
+
+.qr-collapsed {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    padding-right: 2.25rem;
+}
+
+.qr-collapsed-lines {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.qr-collapsed-original,
+.qr-collapsed-short {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.qr-collapsed-original {
+    font-size: 0.78rem;
+    color: var(--color-text-light);
+}
+
+.qr-collapsed-short {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--color-brand-primary);
+}
+
+.qr-chev {
+    position: absolute;
+    top: 50%;
+    right: 0.75rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-bg-surface);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.qr-chev:hover {
+    color: var(--color-brand-primary);
+    border-color: var(--color-brand-primary);
+}
+
+.qr-chev svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Chevron points up (collapse) when expanded, down (expand) when collapsed */
+.qr-result.collapsed .qr-chev svg {
+    transform: rotate(180deg);
+}
+
+.qr-result:not(.collapsed) .qr-chev {
+    top: 0.9rem;
+    transform: none;
+}
+
+.qr-live {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.qr-history-item .qr-original {
+    padding-right: 2.4rem;
+}
+
+.qr-original {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.45rem 0.75rem;
+    background-color: var(--color-bg-base);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.qr-original-label {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-light);
+}
+
+.qr-original-link {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    word-break: break-all;
+}
+
+.qr-original-link:hover {
+    color: var(--color-brand-hover);
+}
+
+/* Share card — QR + editable name + short URL + Save Image (index result) */
+.qr-share {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.25rem;
+    background-color: var(--color-bg-base);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: left;
+}
+
+.qr-share-code {
+    flex-shrink: 0;
+    padding: 0.5rem;
+    background-color: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    line-height: 0;
+}
+
+.qr-share-code svg {
+    width: 160px;
+    height: 160px;
+    display: block;
+}
+
+.qr-share-body {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.qr-share-body .form-group {
+    margin-bottom: 0.6rem;
+}
+
+.qr-share-linkrow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.9rem;
+}
+
+.qr-share-linkrow .btn {
+    flex-shrink: 0;
+}
+
+.qr-share-url {
+    flex-grow: 1;
+    min-width: 0;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-brand-primary);
+    word-break: break-all;
+    padding: 0.35rem 0.5rem;
+    background-color: var(--color-bg-hover);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+/* Generated share image preview, "printed" below the card */
+.qr-preview {
+    padding: 0.75rem;
+    background-color: var(--color-bg-base);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.qr-preview img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+}
+
+.qr-preview.print img {
+    animation: qrPrint 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes qrPrint {
+    0% {
+        clip-path: inset(0 0 100% 0);
+        transform: translateY(-10px);
+        opacity: 0.4;
+    }
+    100% {
+        clip-path: inset(0 0 0 0);
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@media (max-width: 560px) {
+    .qr-share {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .qr-share-code {
+        align-self: center;
+    }
+}
+
 /* ==========================================================================
    Paste Viewer (bin_view)
    ========================================================================== */

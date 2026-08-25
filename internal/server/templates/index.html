@@ -8,29 +8,9 @@
             <span class="brand-name">Glimmer</span>
         </div>
         <h1 style="font-size: 1.75rem; margin-bottom: 0.5rem;">Shorten a URL</h1>
-        <p class="text-muted" style="margin-bottom: 2rem;">Paste a long URL and get a short link.</p>
+        <p class="text-muted" style="margin-bottom: 1.75rem;">Paste a long URL and get a short link.</p>
 
-        {{if .Error}}
-        <div class="alert alert-error">{{.Error}}</div>
-        {{end}}
-
-        {{if .ShortURL}}
-        <div class="alert alert-success" style="text-align:left;">
-            <div style="flex-grow: 1;">
-                <strong>Your short link is ready.</strong>
-                <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.25rem; word-break: break-all;">{{.OriginalURL}}</p>
-            </div>
-        </div>
-        <div class="result-box">
-            <code id="short-url">{{.ShortURL}}</code>
-            <button id="copy-short-url" class="btn btn-secondary btn-sm">Copy</button>
-        </div>
-        {{if .QRSVG}}
-        <div class="qr-display">{{.QRSVG}}</div>
-        {{end}}
-        {{end}}
-
-        <form method="post" action="/shorten" id="shorten-form" style="text-align: left;">
+        <form method="post" action="/shorten" id="shorten-form" style="text-align: left; margin-bottom: 0;">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
             <div class="form-group">
@@ -48,7 +28,80 @@
 
             <button type="submit" class="btn btn-primary btn-lg btn-block">Shorten</button>
         </form>
+
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
     </div>
+
+    {{if .QRSVG}}
+    <div class="card qr-result" id="qr-result">
+        <div class="qr-original" id="qr-original">
+            <span class="qr-original-label">Original URL</span>
+            <a class="qr-original-link" href="{{.OriginalURL}}" target="_blank" rel="noopener">{{.OriginalURL}}</a>
+        </div>
+
+        <div class="qr-share" id="qr-share">
+            <div class="qr-share-code" id="qr-share-code">{{.QRSVG}}</div>
+            <div class="qr-share-body">
+                <div class="form-group">
+                    <label for="qr-caption" class="form-label">Share name</label>
+                    <input type="text" id="qr-caption" class="qr-caption" maxlength="80" placeholder="e.g. My website" autocomplete="off">
+                    <small class="form-help">Shown next to the QR code in the saved image.</small>
+                </div>
+                <div class="qr-share-linkrow">
+                    <code id="qr-share-url" class="qr-share-url">{{.ShortURL}}</code>
+                    <button type="button" id="copy-share-url" class="btn btn-secondary btn-sm js-copy">Copy</button>
+                </div>
+                <button type="button" id="qr-image-btn" class="btn btn-primary btn-block js-image-btn" style="justify-content:center;">Generate Image</button>
+            </div>
+        </div>
+
+        <div class="qr-preview" id="qr-preview" hidden>
+            <img id="qr-preview-image" alt="Share image preview">
+        </div>
+    </div>
+    {{end}}
+
+    <div id="qr-history"></div>
+
+    <template id="qr-history-tpl">
+        <div class="card qr-result qr-history-item collapsed">
+            <button type="button" class="qr-chev" aria-label="Expand">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg>
+            </button>
+            <div class="qr-collapsed">
+                <div class="qr-collapsed-lines">
+                    <span class="qr-collapsed-original"></span>
+                    <span class="qr-collapsed-short"></span>
+                </div>
+            </div>
+            <div class="qr-live">
+                <div class="qr-original">
+                    <span class="qr-original-label">Original URL</span>
+                    <a class="qr-original-link" target="_blank" rel="noopener"></a>
+                </div>
+                <div class="qr-share">
+                    <div class="qr-share-code"></div>
+                    <div class="qr-share-body">
+                        <div class="form-group">
+                            <label class="form-label">Share name</label>
+                            <input type="text" class="qr-caption" maxlength="80" placeholder="e.g. My website" autocomplete="off">
+                            <small class="form-help">Shown next to the QR code in the saved image.</small>
+                        </div>
+                        <div class="qr-share-linkrow">
+                            <code class="qr-share-url"></code>
+                            <button type="button" class="btn btn-secondary btn-sm js-copy">Copy</button>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block js-image-btn" style="justify-content:center;">Generate Image</button>
+                    </div>
+                </div>
+                <div class="qr-preview" hidden>
+                    <img alt="Share image preview">
+                </div>
+            </div>
+        </div>
+    </template>
 
 </div>
 
