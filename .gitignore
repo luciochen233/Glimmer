@@ -2,8 +2,12 @@ glimmer
 glimmer.exe
 glimmer.exe~
 glimmer-arm
+urlshort.exe
 data/
 node_modules/
+
+# Dev artifacts
+*.log
 
 # Local runtime config — copy config.example.toml and fill in your real values.
 config.toml
