@@ -10,7 +10,11 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [
 - **Public:** Anyone can shorten a URL — no account required
 - **Auto-scheme:** Submitting `google.com` automatically becomes `https://google.com`
 - **Deduplication:** Submitting the same URL a second time returns the existing short link
+- **POST-Redirect-GET:** Creating a link 303-redirects to `/?slug=...` — refreshing the result page never prompts to re-submit the form, and the result URL is bookmarkable
 - **QR codes:** Server-side SVG QR codes generated for every short link (crisp, no CDN)
+- **Share card:** After shortening, the result shows the original URL, the QR code, a custom share name, and the short link with a copy button
+- **Generate/Save Image:** One click composites a 21:9 (2520×1080) PNG — QR on the left, share name and short link (always one line) on the right — entirely client-side via canvas, previews it with a print animation, then downloads as `qr-<slug>.png`
+- **Local history:** Shortened links are kept in the browser's localStorage (up to 100, per-device). Previous links appear below the form as collapsed two-line boxes (truncated original URL + short link); click to expand back into the full share card and regenerate the image. Stored QR SVGs are re-validated before re-injection
 - **Click tracking:** Every redirect increments the click counter
 - **IP rate limiting:** Anonymous users limited to 1 short link per second; admin is never limited
 - **Short slugs:** 3-character base-36 auto-generated (`a-z`, `0-9`); up to 64 characters for custom (admin only)
@@ -85,10 +89,11 @@ glimmer/
         ├── handlers.go             # All request handlers; template rendering helpers
         ├── middleware.go           # requireAuth, requireCSRF, rateLimiter, sessionStore, clientIP
         ├── static/
-        │   ├── style.css           # Custom styles on top of Pico CSS
-        │   └── upload.js           # Shared client-side upload helper (window.GlimmerUpload)
+        │   ├── css/style.css            # Custom design system (amber/cream, Outfit)
+        │   ├── js/                      # Per-page scripts (CSP blocks inline JS); base.js + upload.js shared
+        │   └── upload.js                # Shared client-side upload helper (window.GlimmerUpload)
         └── templates/
-            ├── index.html          # Public home: shorten form + QR result
+            ├── index.html          # Public home: shorten form + QR share card + local history
             ├── admin_login.html    # Login form (dark, centered card)
             ├── admin.html          # Admin dashboard: stats bar, tiles, links tables
             ├── admin_edit.html     # Edit a single link
@@ -480,8 +485,8 @@ Verify: `curl -I https://luci.ooo` should return a `strict-transport-security` h
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/` | Public | Home / shorten form |
-| `POST` | `/shorten` | Public | Create short link |
+| `GET` | `/` | Public | Home / shorten form; `?slug=...` renders a previous result's share card |
+| `POST` | `/shorten` | Public | Create short link; 303-redirects to `/?slug=...` (PRG — no re-submit prompt on refresh) |
 | `GET` | `/{slug}` | Public | Redirect to destination |
 | `GET` | `/bin/{name}` | Public | View paste |
 | `GET` | `/bin/{name}/{token}` | Public | View token-protected paste |
