@@ -173,7 +173,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	if !s.isLoggedIn(r) {
-		ip := clientIP(r, s.cfg.Server.TrustProxy)
+		ip := s.clientIP(r)
 		// Per-IP cap slows a single attacker; globalLimiter is the server-wide
 		// ceiling that a distributed flood cannot exceed. Admin bypasses both.
 		if !s.limiter.Allow(ip) || !s.globalLimiter.Allow() {
@@ -236,19 +236,8 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		for range 10 {
-			candidate := slug.Generate(s.cfg.Slugs.Length)
-			exists, err := s.db.SlugExists(candidate)
-			if err != nil {
-				s.renderIndex(w, r, "Database error", "", "")
-				return
-			}
-			if !exists {
-				finalSlug = candidate
-				break
-			}
-		}
-		if finalSlug == "" {
+		finalSlug, err = s.generateUniqueSlug()
+		if err != nil {
 			s.renderIndex(w, r, "Could not generate a unique slug. Try again.", "", "")
 			return
 		}
@@ -294,8 +283,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 
 	link, err := s.db.GetBySlug(sl)
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL()})
+		s.notFoundPage(w)
 		return
 	}
 	if err != nil {
@@ -323,7 +311,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Throttle login attempts per IP to slow brute force.
-	if !s.authLimiter.Allow(clientIP(r, s.cfg.Server.TrustProxy)) {
+	if !s.authLimiter.Allow(s.clientIP(r)) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		renderTemplate(w, "admin_login.html", pageData{Error: "Too many attempts. Please wait a moment.", CSRFToken: s.csrfToken(w, r)})
 		return
@@ -536,13 +524,22 @@ func (s *Server) handleBinQR(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(svg))
 }
 
+// notFoundPage renders the branded 404. Every "no such thing" response on the
+// public routes goes through here so they are byte-for-byte identical.
+func (s *Server) notFoundPage(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotFound)
+	renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL()})
+}
+
 func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	providedToken := r.PathValue("token")
 
 	paste, err := s.db.GetPasteByName(name)
 	if err == sql.ErrNoRows {
-		http.NotFound(w, r)
+		// Must be indistinguishable from a hidden paste with a wrong token
+		// (below), otherwise the response reveals which hidden names exist.
+		s.notFoundPage(w)
 		return
 	}
 	if err != nil {
@@ -550,23 +547,37 @@ func (s *Server) handleBinView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Token check (constant-time, case-insensitive since QR codes uppercase URLs)
-	if paste.Token != "" && subtle.ConstantTimeCompare([]byte(strings.ToLower(paste.Token)), []byte(strings.ToLower(providedToken))) != 1 {
-		if paste.Hidden {
-			w.WriteHeader(http.StatusNotFound)
-			renderTemplate(w, "404.html", pageData{BaseURL: s.baseURL()})
+	if paste.Token != "" {
+		// Token check (constant-time, case-insensitive since QR codes uppercase
+		// URLs). Wrong guesses are throttled per IP so short custom tokens
+		// cannot be brute-forced; correct tokens are never throttled.
+		tokenOK, limited := false, false
+		if providedToken != "" {
+			tokenOK, limited = s.tokenLimiter.Guard(s.clientIP(r), func() bool {
+				return subtle.ConstantTimeCompare([]byte(strings.ToLower(paste.Token)), []byte(strings.ToLower(providedToken))) == 1
+			})
+		}
+		if !tokenOK {
+			if paste.Hidden {
+				s.notFoundPage(w)
+				return
+			}
+			errMsg := ""
+			status := http.StatusForbidden
+			if limited {
+				errMsg = "Too many attempts. Please wait a moment and try again."
+				status = http.StatusTooManyRequests
+				w.Header().Set("Retry-After", "1")
+			} else if providedToken != "" {
+				errMsg = "Invalid token. Please try again."
+			}
+			w.WriteHeader(status)
+			renderTemplate(w, "bin_token.html", pageData{
+				BaseURL: s.baseURL(),
+				Error:   errMsg,
+			})
 			return
 		}
-		errMsg := ""
-		if providedToken != "" {
-			errMsg = "Invalid token. Please try again."
-		}
-		w.WriteHeader(http.StatusForbidden)
-		renderTemplate(w, "bin_token.html", pageData{
-			BaseURL: s.baseURL(),
-			Error:   errMsg,
-		})
-		return
 	}
 
 	// Raw view
@@ -962,6 +973,14 @@ func (s *Server) thumbPath(filename string) string {
 func (s *Server) generateThumbnail(filename string) error {
 	if !isImageFile(filename) {
 		return fmt.Errorf("not an image")
+	}
+	// One decode at a time, and skip the work if a concurrent request already
+	// produced the thumbnail while we waited (callers that want a fresh one
+	// remove the cached file first).
+	s.thumbMu.Lock()
+	defer s.thumbMu.Unlock()
+	if _, err := os.Stat(s.thumbPath(filename)); err == nil {
+		return nil
 	}
 	src, err := decodeImageBounded(filepath.Join(s.cfg.Upload.Dir, filename))
 	if err != nil {

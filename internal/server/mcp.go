@@ -56,7 +56,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	authorized := s.mcpAPIKeyAuth(r)
 	if !authorized {
 		if r.Header.Get("Authorization") != "" {
-			ip := clientIP(r, s.cfg.Server.TrustProxy)
+			ip := s.clientIP(r)
 			if !s.authLimiter.Allow(ip) {
 				w.Header().Set("Retry-After", "1")
 				writeMCPHTTPError(w, nil, http.StatusTooManyRequests, -32000, "Too many attempts")
@@ -525,6 +525,7 @@ func (s *Server) mcpDeleteUpload(args map[string]any) (any, error) {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to delete upload: %w", err)
 	}
+	os.Remove(s.thumbPath(filename))
 	if err := s.db.DeleteUpload(filename); err != nil {
 		return nil, fmt.Errorf("failed to delete upload metadata: %w", err)
 	}
@@ -718,15 +719,27 @@ func (s *Server) toMCPPaste(paste db.Paste, includeContent bool) mcpPaste {
 	return response
 }
 
+// generateUniqueSlug picks an unused random slug. If the configured length is
+// (nearly) exhausted it falls back to longer slugs, so anonymous users filling
+// a short slug space (36^3 is only ~46k) cannot permanently break shortening.
 func (s *Server) generateUniqueSlug() (string, error) {
-	for range 10 {
-		candidate := slug.Generate(s.cfg.Slugs.Length)
-		exists, err := s.db.SlugExists(candidate)
-		if err != nil {
-			return "", fmt.Errorf("failed to check slug: %w", err)
-		}
-		if !exists {
-			return candidate, nil
+	base := s.cfg.Slugs.Length
+	if base < 1 {
+		base = 1
+	}
+	for length := base; length <= base+3; length++ {
+		for range 10 {
+			candidate := slug.Generate(length)
+			if slug.Validate(candidate) != nil {
+				continue // reserved word such as "bin" or "api"
+			}
+			exists, err := s.db.SlugExists(candidate)
+			if err != nil {
+				return "", fmt.Errorf("failed to check slug: %w", err)
+			}
+			if !exists {
+				return candidate, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("could not generate a unique slug")

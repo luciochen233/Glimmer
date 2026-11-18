@@ -305,7 +305,7 @@ func (d *DB) DeletePaste(id int64) error {
 
 func (d *DB) PasteNameExists(name string) (bool, error) {
 	var count int
-	err := d.conn.QueryRow("SELECT COUNT(*) FROM pastes WHERE name = ?", name).Scan(&count)
+	err := d.conn.QueryRow("SELECT COUNT(*) FROM pastes WHERE name = ? COLLATE NOCASE", name).Scan(&count)
 	return count > 0, err
 }
 

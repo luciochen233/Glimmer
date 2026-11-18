@@ -12,6 +12,12 @@ write_timeout = "10s"
 # Only enable if behind a trusted reverse proxy that sets X-Forwarded-For.
 # When false, the real connection IP is used for rate limiting (cannot be spoofed).
 trust_proxy = false
+# Number of trusted proxies in front of Glimmer (only used when trust_proxy is
+# true). The client IP is read that many entries from the RIGHT of
+# X-Forwarded-For — entries further left are client-supplied and spoofable.
+# 1 = a single proxy (nginx, or Cloudflare straight to the app);
+# 2 = Cloudflare -> nginx -> Glimmer.
+proxy_hops = 1
 # Maximum number of in-flight HTTP requests before returning 503. Tune down on
 # very small hardware (e.g. RPi Zero) to bound memory/CPU use.
 max_concurrent = 64

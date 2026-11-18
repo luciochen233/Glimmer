@@ -49,6 +49,7 @@ func webTestServer(t *testing.T, mutate func(*config.Config)) *Server {
 		authLimiter:   newRateLimiter(0),
 		bcryptSem:     make(chan struct{}, 1),
 		globalLimiter: newGlobalRateLimiter(10, 10),
+		tokenLimiter:  newRateLimiter(0),
 	}
 }
 

@@ -93,7 +93,9 @@ func (srv *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
 
 func verifyCSRF(r *http.Request) bool {
 	cookie, err := r.Cookie("csrf")
-	if err != nil {
+	// Require a full-length token: an empty cookie must never "match" an
+	// empty/missing form field.
+	if err != nil || len(cookie.Value) != 64 {
 		return false
 	}
 	formToken := r.FormValue("csrf_token")
@@ -132,7 +134,12 @@ func (rl *rateLimiter) Allow(ip string) bool {
 		return false
 	}
 	rl.clients[ip] = now
-	// Lazy cleanup: purge stale entries when map grows large
+	rl.purgeLocked(now)
+	return true
+}
+
+// purgeLocked drops stale entries once the map grows large. Caller holds mu.
+func (rl *rateLimiter) purgeLocked(now time.Time) {
 	if len(rl.clients) > 10000 {
 		for k, v := range rl.clients {
 			if now.Sub(v) > rl.window*10 {
@@ -140,7 +147,26 @@ func (rl *rateLimiter) Allow(ip string) bool {
 			}
 		}
 	}
-	return true
+}
+
+// Guard throttles failed secret guesses per IP. check is skipped (limited=true)
+// while ip has a failure inside the window; otherwise it runs, and a false
+// result starts the window. Successes are never throttled. check runs under
+// the limiter lock so concurrent guesses from one IP cannot race past it —
+// keep it cheap.
+func (rl *rateLimiter) Guard(ip string, check func() bool) (ok, limited bool) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	if last, found := rl.clients[ip]; found && now.Sub(last) < rl.window {
+		return false, true
+	}
+	if check() {
+		return true, false
+	}
+	rl.clients[ip] = now
+	rl.purgeLocked(now)
+	return false, false
 }
 
 // globalRateLimiter is a server-wide token bucket that caps total throughput
@@ -180,21 +206,41 @@ func (g *globalRateLimiter) Allow() bool {
 	return false
 }
 
-// clientIP returns the client IP for rate-limiting purposes. Forwarded headers
-// are only honoured when trustProxy is true, because any client can set them —
-// trusting them unconditionally lets an attacker rotate X-Forwarded-For to
-// bypass per-IP limits.
-func clientIP(r *http.Request, trustProxy bool) string {
-	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// First IP in the chain is the original client
-			if i := strings.Index(xff, ","); i > 0 {
-				return strings.TrimSpace(xff[:i])
-			}
-			return strings.TrimSpace(xff)
+// clientIP returns the client IP for rate limiting and the request log, using
+// the server's proxy settings.
+func (srv *Server) clientIP(r *http.Request) string {
+	hops := 0
+	if srv.cfg.Server.TrustProxy {
+		hops = srv.cfg.Server.ProxyHops
+		if hops < 1 {
+			hops = 1
 		}
-		if xri := r.Header.Get("X-Real-Ip"); xri != "" {
-			return strings.TrimSpace(xri)
+	}
+	return clientIP(r, hops)
+}
+
+// clientIP returns the client IP. proxyHops is the number of trusted reverse
+// proxies in front of the server (0 = none: forwarded headers are ignored,
+// because any client can set them).
+//
+// Each proxy APPENDS the address it received the connection from to
+// X-Forwarded-For; it does not remove what the client sent. So only the last
+// proxyHops entries are trustworthy and the real client is the proxyHops-th
+// entry from the right. Taking the first entry instead would let anyone forge
+// an arbitrary IP and sidestep the login / shorten / paste-token throttles.
+func clientIP(r *http.Request, proxyHops int) string {
+	if proxyHops > 0 {
+		if xff := strings.Join(r.Header.Values("X-Forwarded-For"), ","); xff != "" {
+			parts := strings.Split(xff, ",")
+			if i := len(parts) - proxyHops; i >= 0 {
+				if ip := strings.TrimSpace(parts[i]); ip != "" {
+					return ip
+				}
+			}
+			// Shorter chain than configured: the request did not come through
+			// all the proxies, so nothing in the header can be trusted.
+		} else if xri := strings.TrimSpace(r.Header.Get("X-Real-Ip")); xri != "" && proxyHops == 1 {
+			return xri
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

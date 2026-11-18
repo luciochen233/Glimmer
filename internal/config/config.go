@@ -27,6 +27,11 @@ type ServerConfig struct {
 	// behind a trusted reverse proxy that sets these headers; otherwise a
 	// client can spoof them to bypass rate limiting.
 	TrustProxy bool `toml:"trust_proxy"`
+	// ProxyHops is how many trusted proxies sit in front of the server when
+	// TrustProxy is on (default 1). The client IP is taken that many entries
+	// from the right of X-Forwarded-For; entries further left are
+	// client-supplied and spoofable. Use 2 for e.g. Cloudflare -> nginx -> app.
+	ProxyHops int `toml:"proxy_hops"`
 	// MaxConcurrent caps the number of in-flight requests. Excess requests
 	// get 503 instead of piling up and exhausting RAM/CPU on small hardware.
 	MaxConcurrent int `toml:"max_concurrent"`
@@ -80,6 +85,7 @@ func Load(path string) (*Config, error) {
 			ReadTimeout:   "5s",
 			WriteTimeout:  "10s",
 			TrustProxy:    false,
+			ProxyHops:     1,
 			MaxConcurrent: 64,
 		},
 		Admin: AdminConfig{
@@ -109,6 +115,10 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Admin.PasswordHash == "" {
 		return nil, fmt.Errorf("admin.password_hash is required in config (generate one with: glimmer --hash-password \"your-password\")")
+	}
+
+	if cfg.Server.ProxyHops < 1 {
+		cfg.Server.ProxyHops = 1
 	}
 
 	if cfg.Server.MaxConcurrent <= 0 {

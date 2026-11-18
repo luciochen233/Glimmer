@@ -170,6 +170,7 @@ base_url       = "http://localhost:8888"
 read_timeout   = "5s"
 write_timeout  = "10s"
 trust_proxy    = false          # only honour X-Forwarded-For behind a trusted proxy
+proxy_hops     = 1              # trusted proxies in front; client IP = Nth X-Forwarded-For entry from the right
 max_concurrent = 64             # in-flight request cap (503 beyond it); lower on RPi Zero
 
 [admin]

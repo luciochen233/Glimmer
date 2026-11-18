@@ -465,7 +465,7 @@ sudo systemctl status nginx
 
 ### Cloudflare note
 
-If proxying through Cloudflare, `X-Forwarded-For` is safe to trust for rate limiting since Cloudflare controls the header. For direct-to-internet deployments without a trusted proxy, clients could spoof `X-Forwarded-For` to bypass IP rate limits — see "Possible Future Improvements".
+Proxies (nginx's `$proxy_add_x_forwarded_for`, Cloudflare) *append* to `X-Forwarded-For`; they do not strip what the client sent. Glimmer therefore reads the client IP `proxy_hops` entries from the **right** of the header and ignores everything further left. Set `trust_proxy = true` and `proxy_hops = 1` for a single proxy (nginx alone, or Cloudflare straight to the app), or `proxy_hops = 2` for Cloudflare → nginx → Glimmer. Leave `trust_proxy = false` for direct-to-internet deployments so the header is ignored entirely.
 
 #### Enabling HSTS (HTTP Strict-Transport-Security)
 

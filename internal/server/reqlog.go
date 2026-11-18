@@ -127,7 +127,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			Path:       r.URL.Path,
 			Status:     rec.status,
 			DurationMS: time.Since(start).Milliseconds(),
-			IP:         clientIP(r, s.cfg.Server.TrustProxy),
+			IP:         s.clientIP(r),
 			Actor:      actorFor(r),
 		})
 	})

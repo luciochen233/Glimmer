@@ -7,10 +7,12 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +29,12 @@ type Server struct {
 	bcryptSem     chan struct{}
 	reqlog        *requestLog
 	globalLimiter *globalRateLimiter
+	// tokenLimiter throttles wrong paste-token guesses per IP. Separate from
+	// authLimiter so a paste viewer cannot influence the login throttle.
+	tokenLimiter *rateLimiter
+	// thumbMu serialises thumbnail generation: a full image decode can cost
+	// ~100 MB, so concurrent requests for uncached thumbnails must not stack.
+	thumbMu sync.Mutex
 }
 
 func New(cfg *config.Config, database *db.DB) *Server {
@@ -46,6 +54,7 @@ func New(cfg *config.Config, database *db.DB) *Server {
 		bcryptSem:     make(chan struct{}, bcryptWorkers),
 		reqlog:        newRequestLog(100),
 		globalLimiter: newGlobalRateLimiter(10, 10), // 10 shortens/sec globally, burst 10; admin bypasses
+		tokenLimiter:  newRateLimiter(1 * time.Second),
 	}
 }
 
@@ -75,6 +84,7 @@ func securityHeaders(next http.Handler) http.Handler {
 				"script-src 'self'; "+
 				"object-src 'none'; "+
 				"base-uri 'none'; "+
+				"form-action 'self'; "+
 				"frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
@@ -87,8 +97,12 @@ func lowercasePath(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lower := strings.ToLower(r.URL.Path)
 		if lower != r.URL.Path && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(lower, "/admin") && !strings.HasPrefix(r.URL.Path, "/uploads/") {
-			r.URL.Path = lower
-			http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
+			// Build the Location from a single-slash-rooted path. Echoing the
+			// request path back verbatim would turn "//EVIL.example/x" (or
+			// "/%2FEVIL.example") into a scheme-relative Location, i.e. an
+			// open redirect to another host.
+			target := url.URL{Path: "/" + strings.TrimLeft(lower, `/\`), RawQuery: r.URL.RawQuery}
+			http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
 			return
 		}
 		next.ServeHTTP(w, r)
