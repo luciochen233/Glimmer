@@ -10,6 +10,7 @@ import (
 
 	"glimmer/internal/config"
 	"glimmer/internal/db"
+	"glimmer/internal/httpguard"
 )
 
 func TestAPICreateLinkRequiresAuth(t *testing.T) {
@@ -314,6 +315,6 @@ func apiTestServer(t *testing.T, apiKey string) *Server {
 		},
 		db:          database,
 		authLimiter: newRateLimiter(0),
-		bcryptSem:   make(chan struct{}, 1),
+		pwGate:      httpguard.NewPasswordGate(1),
 	}
 }

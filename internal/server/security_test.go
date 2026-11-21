@@ -233,7 +233,7 @@ func TestStaticServesFilesNotListings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := http.StripPrefix("/static/", http.FileServer(noDirFS{http.FS(staticSub)}))
+	h := http.StripPrefix("/static/", http.FileServer(noDirFS{FS: http.FS(staticSub)}))
 	for path, want := range map[string]int{
 		"/static/":              http.StatusNotFound,
 		"/static/js/":           http.StatusNotFound,

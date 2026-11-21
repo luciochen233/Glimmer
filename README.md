@@ -87,7 +87,7 @@ glimmer/
     └── server/
         ├── server.go               # HTTP mux registration; security headers middleware
         ├── handlers.go             # All request handlers; template rendering helpers
-        ├── middleware.go           # requireAuth, requireCSRF, rateLimiter, sessionStore, clientIP
+        ├── middleware.go           # requireAuth, requireCSRF, sessionStore; aliases into internal/httpguard
         ├── static/
         │   ├── css/style.css            # Custom design system (amber/cream, Outfit)
         │   ├── js/                      # Per-page scripts (CSP blocks inline JS); base.js + upload.js shared

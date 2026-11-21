@@ -39,6 +39,7 @@ glimmer/
     ├── config/config.go             # TOML config structs + loader
     ├── db/db.go                     # DB open/migrate; Link + Paste + Upload CRUD
     ├── slug/slug.go                 # Base-36 slug generation + validation
+    ├── httpguard/                   # HTTP hardening shared verbatim with Solis (see below)
     └── server/
         ├── server.go                # Mux, middleware wiring, server start
         ├── handlers.go              # All HTTP handlers + rendering helpers
@@ -76,6 +77,9 @@ glimmer/
 - `internal/db` — pure database, no HTTP
 - `internal/slug` — pure slug logic, no HTTP
 - `internal/server` — everything HTTP: mux, handlers, middleware, templates
+
+### Shared hardening: `internal/httpguard`
+Client-IP resolution, rate limiters, the cross-origin guard, `LowercasePath`, `NoDirFS`, body/concurrency caps, the bcrypt gate and `SessionKey` live in `internal/httpguard`. That directory is kept **byte-identical** with the copy in the Solis repo (github.com/luciochen233/Solis): it imports only the standard library and `golang.org/x/crypto`, nothing from `glimmer/...`. Change it in one repo, run its tests, then copy the directory to the other. `internal/server/middleware.go` aliases the names the server package uses (`rateLimiter`, `clientIP`, `crossOriginGuard`, ...).
 
 ### All handlers on `*Server`
 ```go
