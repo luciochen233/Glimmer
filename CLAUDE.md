@@ -119,6 +119,8 @@ Single light theme only — no `data-theme` switching. The design tokens are doc
 3. Add the route to the URL routes table in `README.md`
 
 ### CSRF
+Two layers. `crossOriginGuard` (middleware chain in `server.go`, wraps the whole mux) rejects any non-GET request whose `Sec-Fetch-Site`/`Origin` is not this site; requests with neither header (curl, MCP, API) pass. The per-form token below is still required — keep both.
+
 All state-changing POSTs must include `<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">` in the form. Handlers must be wrapped with `requireCSRF`. For multipart form handlers (file uploads), verify CSRF manually inside the handler *after* calling `r.ParseMultipartForm` — do not use the `requireCSRF` wrapper as it will parse with Go's default 32 MB limit before `MaxBytesReader` takes effect.
 
 ### File uploads
@@ -154,6 +156,9 @@ Migrations run automatically in `db.Open()`. New columns are added with `ALTER T
 ### Paste name / token validation
 Both paste names and access tokens must pass `validPasteName()`: alphanumeric + hyphens + underscores, 1–64 chars.
 
+### Sessions
+The `sessions` table stores `sessionKey(token)` (SHA-256), never the cookie value. Always go through `s.sessions` (`Create`/`Valid`/`Delete`) rather than the `db.*Session` functions directly.
+
 ### lowercasePath middleware
 Redirects uppercase paths to lowercase (for QR-code URL compatibility). **Excludes** `/static/`, `/admin`, and `/uploads/` — these prefixes must stay in the exclusion list if new case-sensitive routes are added.
 
@@ -165,6 +170,7 @@ Redirects uppercase paths to lowercase (for QR-code URL compatibility). **Exclud
 
 ```toml
 [server]
+host           = ""             # listen address; "" = all interfaces, "127.0.0.1" behind a local reverse proxy
 port           = 8888
 base_url       = "http://localhost:8888"
 read_timeout   = "5s"

@@ -18,6 +18,10 @@ type Config struct {
 }
 
 type ServerConfig struct {
+	// Host is the address to listen on. Empty (the default) listens on all
+	// interfaces; set it to 127.0.0.1 when a reverse proxy on the same machine
+	// is the only thing that should reach the app.
+	Host         string `toml:"host"`
 	Port         int    `toml:"port"`
 	BaseURL      string `toml:"base_url"`
 	ReadTimeout  string `toml:"read_timeout"`

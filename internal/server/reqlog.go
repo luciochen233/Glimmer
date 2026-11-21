@@ -72,6 +72,13 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap lets http.ResponseController reach the underlying writer. Without it
+// the per-request deadline extensions in the upload handlers fail silently and
+// large uploads are cut off by the short global read/write timeouts.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 // shouldLogRequest reports whether a path is worth a slot in the ring buffer.
 // Noisy static/asset/health paths are excluded so the buffer stays full of
 // useful application traffic instead of CSS/JS/thumbnail fetches.

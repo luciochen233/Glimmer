@@ -5,6 +5,10 @@
 # default in config.Load() EXCEPT admin.password_hash, which is required.
 
 [server]
+# Address to listen on. Empty = all interfaces. Set to "127.0.0.1" when a
+# reverse proxy on the same machine (nginx, Caddy) fronts Glimmer, so the app
+# cannot be reached around the proxy.
+host = ""
 port = 8888
 base_url = "http://localhost:8888"
 read_timeout = "5s"

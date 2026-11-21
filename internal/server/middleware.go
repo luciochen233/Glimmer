@@ -2,10 +2,12 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -43,19 +45,28 @@ func (s *sessionStore) Create() (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(b)
-	if err := s.db.CreateSession(token, time.Now().Add(s.ttl)); err != nil {
+	if err := s.db.CreateSession(sessionKey(token), time.Now().Add(s.ttl)); err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
 func (s *sessionStore) Valid(token string) bool {
-	ok, _ := s.db.SessionValid(token)
+	ok, _ := s.db.SessionValid(sessionKey(token))
 	return ok
 }
 
 func (s *sessionStore) Delete(token string) {
-	s.db.DeleteSession(token)
+	s.db.DeleteSession(sessionKey(token))
+}
+
+// sessionKey is what the database stores for a session: the SHA-256 of the
+// cookie value, never the value itself. A copy of urls.db (a backup, a stray
+// read) therefore cannot be replayed as a login. The token is 256 random bits,
+// so an unsalted fast hash is sufficient.
+func sessionKey(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func (srv *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -110,6 +121,22 @@ func (srv *Server) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// crossOriginGuard rejects state-changing browser requests that do not come
+// from this site's own pages (Sec-Fetch-Site / Origin check, see
+// http.CrossOriginProtection). It backs up the CSRF token, which is a
+// double-submit cookie: a page on a sibling subdomain can plant its own "csrf"
+// cookie for the parent domain and, being same-site, still gets the session
+// cookie sent along — so the token alone does not stop it. Requests with
+// neither header (curl, MCP/API clients) are unaffected. baseURL is trusted
+// explicitly so a proxy that rewrites Host cannot lock the admin out.
+func crossOriginGuard(baseURL string, next http.Handler) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	if u, err := url.Parse(baseURL); err == nil && u.Scheme != "" && u.Host != "" {
+		_ = cop.AddTrustedOrigin(u.Scheme + "://" + u.Host)
+	}
+	return cop.Handler(next)
 }
 
 // rateLimiter tracks the last request time per IP.
