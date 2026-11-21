@@ -17,6 +17,7 @@ import (
 
 	"glimmer/internal/config"
 	"glimmer/internal/db"
+	"glimmer/internal/httpguard"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -47,7 +48,7 @@ func webTestServer(t *testing.T, mutate func(*config.Config)) *Server {
 		sessions:      newSessionStore(database, time.Hour),
 		limiter:       newRateLimiter(0),
 		authLimiter:   newRateLimiter(0),
-		bcryptSem:     make(chan struct{}, 1),
+		pwGate:     httpguard.NewPasswordGate(1),
 		globalLimiter: newGlobalRateLimiter(10, 10),
 		tokenLimiter:  newRateLimiter(0),
 	}

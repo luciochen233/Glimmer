@@ -8,18 +8,17 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"glimmer/internal/config"
 	"glimmer/internal/db"
+	"glimmer/internal/httpguard"
 )
 
 type Server struct {
@@ -28,7 +27,7 @@ type Server struct {
 	sessions      *sessionStore
 	limiter       *rateLimiter
 	authLimiter   *rateLimiter
-	bcryptSem     chan struct{}
+	pwGate        *httpguard.PasswordGate
 	reqlog        *requestLog
 	globalLimiter *globalRateLimiter
 	// tokenLimiter throttles wrong paste-token guesses per IP. Separate from
@@ -41,19 +40,15 @@ type Server struct {
 
 func New(cfg *config.Config, database *db.DB) *Server {
 	ttl := time.Duration(cfg.Admin.SessionHours) * time.Hour
-	// Allow at most NumCPU concurrent bcrypt operations so password checks
-	// cannot peg the CPU on small hardware. Always at least 1.
-	bcryptWorkers := runtime.NumCPU()
-	if bcryptWorkers < 1 {
-		bcryptWorkers = 1
-	}
 	return &Server{
-		cfg:           cfg,
-		db:            database,
-		sessions:      newSessionStore(database, ttl),
-		limiter:       newRateLimiter(1 * time.Second),
-		authLimiter:   newRateLimiter(1 * time.Second),
-		bcryptSem:     make(chan struct{}, bcryptWorkers),
+		cfg:         cfg,
+		db:          database,
+		sessions:    newSessionStore(database, ttl),
+		limiter:     newRateLimiter(1 * time.Second),
+		authLimiter: newRateLimiter(1 * time.Second),
+		// At most NumCPU concurrent bcrypt operations, so password checks
+		// cannot peg the CPU on small hardware.
+		pwGate:        httpguard.NewPasswordGate(runtime.NumCPU()),
 		reqlog:        newRequestLog(100),
 		globalLimiter: newGlobalRateLimiter(10, 10), // 10 shortens/sec globally, burst 10; admin bypasses
 		tokenLimiter:  newRateLimiter(1 * time.Second),
@@ -93,38 +88,21 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // lowercasePath normalises the URL path to lowercase so that QR-code
-// generated uppercase URLs (e.g. /BIN/TEST/TOKEN) resolve correctly.
-// Static and admin paths are excluded to avoid breaking file serving.
+// generated uppercase URLs (e.g. /BIN/TEST/TOKEN) resolve correctly. Static,
+// admin and upload paths are excluded to avoid breaking file serving; keep
+// these prefixes in the list if new case-sensitive routes are added.
 func lowercasePath(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lower := strings.ToLower(r.URL.Path)
-		if lower != r.URL.Path && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(lower, "/admin") && !strings.HasPrefix(r.URL.Path, "/uploads/") {
-			// Build the Location from a single-slash-rooted path. Echoing the
-			// request path back verbatim would turn "//EVIL.example/x" (or
-			// "/%2FEVIL.example") into a scheme-relative Location, i.e. an
-			// open redirect to another host.
-			target := url.URL{Path: "/" + strings.TrimLeft(lower, `/\`), RawQuery: r.URL.RawQuery}
-			http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return httpguard.LowercasePath(next, "/static/", "/admin", "/uploads/")
 }
 
-// noDirFS serves files but never directories, so /static/ and its
-// subdirectories return 404 instead of an auto-generated file listing.
-type noDirFS struct{ fs http.FileSystem }
+// noDirFS serves files but never directory listings.
+type noDirFS = httpguard.NoDirFS
 
-func (n noDirFS) Open(name string) (http.File, error) {
-	f, err := n.fs.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	if st, err := f.Stat(); err != nil || st.IsDir() {
-		f.Close()
-		return nil, fs.ErrNotExist
-	}
-	return f, nil
+// isUploadRoute matches the two upload endpoints exactly: they set their own
+// (larger) body cap. A prefix match would also exempt /admin/uploads/*
+// (delete, resize) from the ordinary cap.
+func isUploadRoute(r *http.Request) bool {
+	return r.URL.Path == "/admin/upload" || r.URL.Path == "/admin/upload-file"
 }
 
 func (s *Server) Start() error {
@@ -140,7 +118,7 @@ func (s *Server) Start() error {
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(noDirFS{http.FS(staticSub)})))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(noDirFS{FS: http.FS(staticSub)})))
 
 	// Uploaded files (public — appear in public pastes). Non-image files are
 	// served as attachments to prevent same-origin XSS via HTML/SVG/JS uploads.
@@ -182,14 +160,18 @@ func (s *Server) Start() error {
 
 	if s.cfg.MCP.Enabled {
 		mux.HandleFunc("POST /mcp", s.handleMCP)
-		// REST surface for programmatic short-link creation. Shares the
-		// same API key as /mcp. Only registered when the API key is set so
-		// a misconfigured server never exposes the endpoint unauthenticated.
-		// The route is intentionally not documented in any public-facing
-		// template; visitors who don't know it exists get a 404.
-		if s.cfg.MCP.APIKey != "" {
-			mux.HandleFunc("POST /api/links", s.apiCreateLink)
-		}
+	}
+
+	// REST link API for agents and other applications. Registered only when at
+	// least one key can authenticate (the [mcp] api_key or an [[api.keys]]
+	// entry), so a server without keys never exposes it; visitors who don't
+	// know the routes get a 404 like any other unknown path.
+	if s.apiEnabled() {
+		mux.HandleFunc("POST /api/links", s.apiCreateLink)
+		mux.HandleFunc("GET /api/links", s.apiListLinks)
+		mux.HandleFunc("GET /api/links/{slug}", s.apiGetLink)
+		mux.HandleFunc("PATCH /api/links/{slug}", s.apiUpdateLink)
+		mux.HandleFunc("DELETE /api/links/{slug}", s.apiDeleteLink)
 	}
 
 	// Pastebin public routes (before catch-all)
@@ -212,8 +194,8 @@ func (s *Server) Start() error {
 	//   logRequests      — in-RAM request log
 	//   crossOriginGuard — reject cross-origin state-changing browser requests
 	const maxBodyBytes = 1 << 20 // 1 MB for ordinary requests
-	handler := limitConcurrency(s.cfg.Server.MaxConcurrent,
-		limitBody(maxBodyBytes,
+	handler := httpguard.LimitConcurrency(s.cfg.Server.MaxConcurrent,
+		httpguard.LimitBody(maxBodyBytes, isUploadRoute,
 			lowercasePath(securityHeaders(
 				s.logRequests(
 					crossOriginGuard(s.cfg.Server.BaseURL, mux))))))

@@ -207,6 +207,33 @@ func (d *DB) GetByURL(url string) (*Link, error) {
 	return scanLink(row)
 }
 
+// GetByURLAndCreator finds a link to url created by one specific creator.
+func (d *DB) GetByURLAndCreator(url, createdBy string) (*Link, error) {
+	row := d.conn.QueryRow("SELECT id, slug, url, created_by, clicks, created_at FROM links WHERE url = ? AND created_by = ? LIMIT 1", url, createdBy)
+	return scanLink(row)
+}
+
+// ListRecent returns the most recent links by any creator, capped at limit.
+func (d *DB) ListRecent(limit int) ([]Link, error) {
+	rows, err := d.conn.Query("SELECT id, slug, url, created_by, clicks, created_at FROM links ORDER BY id DESC LIMIT ?", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanLinks(rows)
+}
+
+// ListRecentByAPIClients returns the most recent links created through the
+// REST API by named applications (creator "api:<name>"), capped at limit.
+func (d *DB) ListRecentByAPIClients(limit int) ([]Link, error) {
+	rows, err := d.conn.Query("SELECT id, slug, url, created_by, clicks, created_at FROM links WHERE created_by LIKE 'api:%' ORDER BY id DESC LIMIT ?", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanLinks(rows)
+}
+
 func (d *DB) SlugExists(slug string) (bool, error) {
 	var count int
 	err := d.conn.QueryRow("SELECT COUNT(*) FROM links WHERE slug = ?", slug).Scan(&count)

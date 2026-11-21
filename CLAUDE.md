@@ -39,6 +39,7 @@ glimmer/
     ├── config/config.go             # TOML config structs + loader
     ├── db/db.go                     # DB open/migrate; Link + Paste + Upload CRUD
     ├── slug/slug.go                 # Base-36 slug generation + validation
+    ├── httpguard/                   # HTTP hardening shared verbatim with Solis (see below)
     └── server/
         ├── server.go                # Mux, middleware wiring, server start
         ├── handlers.go              # All HTTP handlers + rendering helpers
@@ -76,6 +77,9 @@ glimmer/
 - `internal/db` — pure database, no HTTP
 - `internal/slug` — pure slug logic, no HTTP
 - `internal/server` — everything HTTP: mux, handlers, middleware, templates
+
+### Shared hardening: `internal/httpguard`
+Client-IP resolution, rate limiters, the cross-origin guard, `LowercasePath`, `NoDirFS`, body/concurrency caps, the bcrypt gate and `SessionKey` live in `internal/httpguard`. That directory is kept **byte-identical** with the copy in the Solis repo (github.com/luciochen233/Solis): it imports only the standard library and `golang.org/x/crypto`, nothing from `glimmer/...`. Change it in one repo, run its tests, then copy the directory to the other. `internal/server/middleware.go` aliases the names the server package uses (`rateLimiter`, `clientIP`, `crossOriginGuard`, ...).
 
 ### All handlers on `*Server`
 ```go
@@ -122,6 +126,9 @@ Single light theme only — no `data-theme` switching. The design tokens are doc
 Two layers. `crossOriginGuard` (middleware chain in `server.go`, wraps the whole mux) rejects any non-GET request whose `Sec-Fetch-Site`/`Origin` is not this site; requests with neither header (curl, MCP, API) pass. The per-form token below is still required — keep both.
 
 All state-changing POSTs must include `<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">` in the form. Handlers must be wrapped with `requireCSRF`. For multipart form handlers (file uploads), verify CSRF manually inside the handler *after* calling `r.ParseMultipartForm` — do not use the `requireCSRF` wrapper as it will parse with Go's default 32 MB limit before `MaxBytesReader` takes effect.
+
+### REST link API (`api.go`)
+`/api/links` (POST, GET) and `/api/links/{slug}` (GET, PATCH, DELETE) are registered only when a key exists (`apiEnabled`). Every handler starts with `s.apiAuthorize(w, r)`, which returns an `apiPrincipal`: the `[mcp] api_key` is the administrator (all links, `created_by = "admin"`), an `[[api.keys]]` entry is an application that only reaches links with `created_by = "api:<name>"`. Load links through `s.apiOwnedLink` so other creators' links stay indistinguishable from missing ones (404, never 403). Wrong keys go through `authLimiter.Guard`.
 
 ### File uploads
 Two endpoints, both admin-only and CSRF-protected:

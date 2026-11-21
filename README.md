@@ -87,7 +87,7 @@ glimmer/
     └── server/
         ├── server.go               # HTTP mux registration; security headers middleware
         ├── handlers.go             # All request handlers; template rendering helpers
-        ├── middleware.go           # requireAuth, requireCSRF, rateLimiter, sessionStore, clientIP
+        ├── middleware.go           # requireAuth, requireCSRF, sessionStore; aliases into internal/httpguard
         ├── static/
         │   ├── css/style.css            # Custom design system (amber/cream, Outfit)
         │   ├── js/                      # Per-page scripts (CSP blocks inline JS); base.js + upload.js shared
@@ -194,55 +194,70 @@ api_key = "replace-with-a-long-random-token"
 
 MCP clients can authenticate with `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`. Basic auth using the configured admin username and password is also accepted. The endpoint exposes tools for listing, creating, updating, and deleting links and pastes, plus listing and deleting upload metadata/files.
 
-### REST API
+### REST API for agents and applications
 
-A small REST surface shares the same `[mcp].api_key`. It is registered only when `[mcp].enabled = true` **and** `api_key` is set, so a misconfigured server never exposes the endpoint unauthenticated. The route is intentionally undocumented in any public-facing template — visitors who don't know it exists get a 404.
+`/api/links` lets an agent or another application create, read, change and delete short links over plain JSON. (MCP clients get the same operations as the `create_link` / `update_link` / `delete_link` / `get_link` / `list_links` tools on `POST /mcp`.)
 
-#### `POST /api/links`
+**Keys.** Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`; keys are compared in constant time, and wrong keys are throttled per client address and logged.
 
-Create a short link. Authenticate with `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`. Both are checked with constant-time comparison.
+| Key | Configured as | Reach |
+|---|---|---|
+| Administrator | `[mcp] api_key` (needs `[mcp] enabled = true`) | Every link. Also authenticates `POST /mcp`. Links it creates are recorded as `created_by = "admin"`. |
+| Application | one `[[api.keys]]` entry per app | Only the links that app created (`created_by = "api:<name>"`). Any other link looks like it does not exist. Cannot use `/mcp`. |
 
-Request body (JSON):
-```json
-{
-  "url": "https://example.com/very/long/path",
-  "slug": "docs"   // optional; omit for auto-generated
-}
+```toml
+[[api.keys]]
+name = "solis"                                  # a-z, 0-9, - or _
+key  = "replace-with-at-least-24-random-chars"  # e.g. openssl rand -hex 24
 ```
 
+Give each application its own key: it can be revoked on its own, and a leaked application key cannot read or redirect anyone else's links. The routes exist only when at least one key is configured; without one they return 404 like any unknown path. Links created by applications are listed under **App Links** on the admin dashboard.
+
+**Endpoints**
+
+| Method | Path | Body | Result |
+|---|---|---|---|
+| `POST` | `/api/links` | `{"url": "...", "slug": "optional"}` | `201` with the new link; `200` with the caller's existing link when the same URL is sent again without a slug |
+| `GET` | `/api/links` | — | `200` `{"links": [...]}`, the caller's links, newest first (max 1000) |
+| `GET` | `/api/links/{slug}` | — | `200` with the link |
+| `PATCH` | `/api/links/{slug}` | `{"url": "...", "slug": "..."}` (either or both) | `200` with the updated link |
+| `DELETE` | `/api/links/{slug}` | — | `200` `{"deleted": true, "slug": "..."}` |
+
 Rules:
-- `url` — required. Max 2048 chars. Must be `http://` or `https://`. Bare domains are auto-prefixed with `https://`.
-- `slug` — optional. Lowercase letters, digits, hyphens, and underscores, up to 64 chars.
-- Deduplication: if the same URL is submitted twice and no custom slug is given, the second call returns the existing link with HTTP 200 (idempotent).
-- Links created via the API are recorded as `created_by = "admin"` and appear in the admin dashboard.
+- `url` — max 2048 chars, `http://` or `https://`. Bare domains are auto-prefixed with `https://`.
+- `slug` — lowercase letters, digits, hyphens and underscores, up to 64 chars; reserved words (`admin`, `api`, `bin`, …) are refused. Omit it on create for a generated slug.
+- Unknown JSON fields are rejected.
 
-Responses:
-- `201 Created` — new link created. Body is the link payload.
-- `200 OK` — same URL already existed; returns the existing link.
-- `400 Bad Request` — invalid JSON, bad URL, or bad slug.
-- `401 Unauthorized` — missing or wrong API key.
-- `409 Conflict` — custom slug already taken.
-- `500 Internal Server Error` — database error.
+Errors are `{"error": "..."}` with `400` (bad JSON, URL or slug), `401` (missing or wrong key), `404` (no such link, or not yours), `409` (slug already taken), `429` (too many wrong keys from this address) or `500`.
 
-Response body (snake_case to match the MCP payload):
+Link payload (snake_case, same as the MCP tools):
 ```json
 {
   "id": 42,
   "slug": "docs",
   "url": "https://example.com/very/long/path",
   "short_url": "https://s.example.com/docs",
-  "created_by": "admin",
+  "created_by": "api:solis",
   "clicks": 0,
   "created_at": "2026-06-08T20:36:55Z"
 }
 ```
 
-Example:
+Examples:
 ```bash
+# create
 curl -X POST https://s.example.com/api/links \
   -H "Authorization: Bearer $GLIMMER_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/docs","slug":"docs"}'
+  -d '{"url":"https://example.com/docs"}'
+
+# point it somewhere else
+curl -X PATCH https://s.example.com/api/links/docs \
+  -H "Authorization: Bearer $GLIMMER_API_KEY" \
+  -d '{"url":"https://example.com/docs/v2"}'
+
+# delete
+curl -X DELETE https://s.example.com/api/links/docs \
+  -H "Authorization: Bearer $GLIMMER_API_KEY"
 ```
 
 ### 4. Build and run
@@ -515,7 +530,9 @@ Verify: `curl -I https://luci.ooo` should return a `strict-transport-security` h
 | `POST` | `/admin/uploads/delete/{filename}` | Admin | Delete an uploaded file (CSRF) |
 | `POST` | `/admin/uploads/resize/{filename}` | Admin | Resize a PNG/JPEG in-place (returns JSON) |
 | `POST` | `/mcp` | MCP auth | JSON-RPC MCP endpoint, when `[mcp].enabled = true` |
-| `POST` | `/api/links` | API key | REST: create a short link (when `[mcp].enabled = true` and `api_key` is set) |
+| `POST` | `/api/links` | API key | REST: create a short link (routes exist only when an API key is configured) |
+| `GET` | `/api/links` | API key | REST: list the caller's links |
+| `GET` `PATCH` `DELETE` | `/api/links/{slug}` | API key | REST: read, change or delete one of the caller's links |
 | `GET` | `/static/*` | Public | CSS / static assets |
 
 ---

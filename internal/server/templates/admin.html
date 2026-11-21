@@ -105,6 +105,54 @@
     </div>
 </section>
 
+{{if .AppLinks}}
+<section style="margin-bottom: 2rem;">
+    <div class="section-header">
+        <div>
+            <h2 class="section-title">App Links</h2>
+            <p class="section-subtitle">{{len .AppLinks}} links created through the API by other applications.</p>
+        </div>
+    </div>
+    <div class="card card-flush">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Slug</th>
+                        <th>Destination</th>
+                        <th>App</th>
+                        <th class="col-numeric">Clicks</th>
+                        <th>Created</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .AppLinks}}
+                    <tr>
+                        <td><a href="/{{.Slug}}" target="_blank" rel="noopener noreferrer">/{{.Slug}}</a></td>
+                        <td title="{{.URL}}"><span class="text-truncate" style="display:inline-block;max-width:340px;vertical-align:middle">{{.URL}}</span></td>
+                        <td><span class="tag-pill">{{.CreatedBy}}</span></td>
+                        <td class="col-numeric">{{.Clicks}}</td>
+                        <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                        <td class="col-actions">
+                            <div class="flex gap-1">
+                                <a href="/admin/edit/{{.ID}}" class="btn btn-secondary btn-sm">Edit</a>
+                                <button type="button" class="btn btn-secondary btn-sm js-qr" data-slug="{{.Slug}}">QR</button>
+                                <form method="post" action="/admin/delete/{{.ID}}" style="display:inline" data-confirm="Delete /{{.Slug}}?">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <button type="submit" class="btn btn-danger btn-sm">Del</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}
+
 <section style="margin-bottom: 2rem;">
     <div class="section-header">
         <div>
