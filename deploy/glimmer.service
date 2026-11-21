@@ -19,11 +19,34 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=glimmer
 
-# Hardening
+# Hardening — the service only needs its data directory and a TCP socket.
+# (Directives unknown to an older systemd are ignored with a warning.)
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
+ProtectHome=true
 ReadWritePaths=/var/lib/glimmer
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# New files (database, uploads) are not world-readable.
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

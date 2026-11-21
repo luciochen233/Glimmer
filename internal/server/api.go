@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -64,6 +65,9 @@ func (s *Server) toAPILink(link db.Link) apiLinkResponse {
 // slug, deduplicates identical URLs, and returns the created link.
 func (s *Server) apiCreateLink(w http.ResponseWriter, r *http.Request) {
 	if !s.apiKeyAuth(r) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Key") != "" {
+			log.Printf("api auth FAILED from %s", s.clientIP(r))
+		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="Glimmer API"`)
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return

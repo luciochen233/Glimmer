@@ -52,13 +52,13 @@ A lightweight, single-binary URL shortener and pastebin built in Go. Hosted on [
 - **Per-upload timeout:** Upload requests get a 120-second read/write deadline via `http.NewResponseController`; all other routes keep the 5s/10s defaults.
 
 ### Security
-- CSRF protection on every state-changing POST (double-submit cookie pattern)
+- CSRF protection on every state-changing POST (double-submit cookie pattern), backed by a global cross-origin check (`Sec-Fetch-Site` / `Origin`) on all non-GET requests
 - `crypto/subtle.ConstantTimeCompare` for CSRF and paste token comparisons
 - Session cookie: `HttpOnly`, `SameSite=Lax`, conditionally `Secure` when behind HTTPS proxy
 - Security headers on all responses: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`
 - Input length limits: URLs 2048 chars, paste content 512 KB
 - URL scheme re-validated before every redirect (defense in depth)
-- In-memory sessions with hourly cleanup goroutine
+- Sessions persisted in SQLite (only a SHA-256 of the cookie value is stored) with hourly cleanup
 
 ---
 
@@ -146,8 +146,9 @@ Edit `config.toml`:
 
 ```toml
 [server]
+host       = ""                        # "" = all interfaces; "127.0.0.1" behind a local reverse proxy
 port       = 8888
-base_url   = "http://localhost:8888"   # Override by Host header at runtime
+base_url   = "http://localhost:8888"   # Used for short links, QR codes, and cookie Secure flag
 read_timeout  = "5s"
 write_timeout = "10s"
 
@@ -467,6 +468,8 @@ sudo systemctl status nginx
 
 Proxies (nginx's `$proxy_add_x_forwarded_for`, Cloudflare) *append* to `X-Forwarded-For`; they do not strip what the client sent. Glimmer therefore reads the client IP `proxy_hops` entries from the **right** of the header and ignores everything further left. Set `trust_proxy = true` and `proxy_hops = 1` for a single proxy (nginx alone, or Cloudflare straight to the app), or `proxy_hops = 2` for Cloudflare → nginx → Glimmer. Leave `trust_proxy = false` for direct-to-internet deployments so the header is ignored entirely.
 
+With `trust_proxy = false` behind a proxy, every visitor appears as `127.0.0.1`: the per-IP limits (login, anonymous shorten, paste-token guesses) collapse into one shared bucket that any single client can exhaust for everyone, and the request log is useless. So behind a proxy, always set `trust_proxy = true` with the right `proxy_hops` — and set `host = "127.0.0.1"` in `[server]` so the app cannot be reached around the proxy (where a forged `X-Forwarded-For` would be believed). For Cloudflare → nginx → Glimmer also firewall ports 80/443 to [Cloudflare's IP ranges](https://www.cloudflare.com/ips/), otherwise a client connecting straight to nginx can still forge the second-from-right entry.
+
 #### Enabling HSTS (HTTP Strict-Transport-Security)
 
 HSTS tells browsers to always use HTTPS for this domain. Because Glimmer sits behind Cloudflare, enable HSTS at Cloudflare's edge rather than in the app (the origin connection from Cloudflare may be plain HTTP depending on your SSL mode, so the app is not a reliable place to emit it):
@@ -593,7 +596,7 @@ max_size_mb  = 50                # Max image upload size in MB; file uploads are
 ## Security Notes
 
 - **Change the default password.** The default hash in `config.toml` is for the password `admin`. Run `./glimmer --hash-password` immediately.
-- **CSRF protection** uses the double-submit cookie pattern. Every admin POST requires a `csrf_token` form field matching the `csrf` cookie value, compared with constant-time equality.
+- **CSRF protection** uses the double-submit cookie pattern. Every admin POST requires a `csrf_token` form field matching the `csrf` cookie value, compared with constant-time equality. On top of that, `crossOriginGuard` (Go's `http.CrossOriginProtection`) rejects any non-GET browser request whose `Sec-Fetch-Site`/`Origin` is not this site — this also covers sibling subdomains, which are same-site and could otherwise plant their own `csrf` cookie. Non-browser clients (curl, MCP, `/api/links`) send neither header and are unaffected.
 - **Sessions** are stored in memory. They are lost when the server restarts (acceptable for single-user use). Session IDs are 32 bytes of `crypto/rand`.
 - **Paste tokens** are 12-character random strings. Token comparison uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks.
 - **Rate limiting** is 1 short link per second per IP for anonymous users. The rate limiter table is lazily cleaned up at 10,000 entries.
@@ -635,7 +638,6 @@ Get-NetTCPConnection -LocalPort 8888 | ForEach-Object { Stop-Process -Id $_.Owni
 ## Possible Future Improvements
 
 - [ ] Configurable trusted-proxy IP list (for safer `X-Forwarded-For` handling)
-- [ ] Persistent sessions (write to SQLite) so restarts don't log out admin
 - [ ] Optional expiry date per link
 - [ ] Bulk delete / bulk import via CSV
 - [ ] Syntax highlighting for code pastes

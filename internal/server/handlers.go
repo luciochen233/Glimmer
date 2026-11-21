@@ -332,10 +332,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !userOK || !pwOK {
+		// Journal line (the request log is RAM-only): failed logins should
+		// leave a trace. IP only — the submitted username may be a mistyped
+		// password.
+		log.Printf("admin login FAILED from %s", s.clientIP(r))
 		w.WriteHeader(http.StatusUnauthorized)
 		renderTemplate(w, "admin_login.html", pageData{Error: "Invalid credentials", CSRFToken: s.csrfToken(w, r)})
 		return
 	}
+	log.Printf("admin login ok from %s", s.clientIP(r))
 
 	token, err := s.sessions.Create()
 	if err != nil {

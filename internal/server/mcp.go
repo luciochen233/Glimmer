@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -72,6 +73,9 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		authorized = ok
 	}
 	if !authorized {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Key") != "" {
+			log.Printf("mcp auth FAILED from %s", s.clientIP(r))
+		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="Glimmer MCP", Basic realm="Glimmer MCP"`)
 		writeMCPHTTPError(w, nil, http.StatusUnauthorized, -32000, "Unauthorized")
 		return

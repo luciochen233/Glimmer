@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -160,5 +161,110 @@ func TestGenerateUniqueSlugGrowsWhenSpaceExhausted(t *testing.T) {
 	got, err := s.generateUniqueSlug()
 	if err != nil || len(got) < 2 {
 		t.Fatalf("got %q, %v; want a longer slug", got, err)
+	}
+}
+
+// A state-changing request from another origin must be refused before it
+// reaches a handler — including one from a sibling subdomain, which is
+// same-site (so SameSite=Lax cookies are sent) and can plant its own csrf
+// cookie for the parent domain.
+func TestCrossOriginGuard(t *testing.T) {
+	reached := false
+	h := crossOriginGuard("https://luci.example", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+	cases := []struct {
+		name    string
+		method  string
+		headers map[string]string
+		allowed bool
+	}{
+		{"same-origin form post", "POST", map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "https://luci.example"}, true},
+		{"sibling subdomain (same-site)", "POST", map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "https://other.luci.example"}, false},
+		{"unrelated site", "POST", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}, false},
+		{"old browser, foreign Origin only", "POST", map[string]string{"Origin": "https://evil.example"}, false},
+		{"old browser, own Origin behind host-rewriting proxy", "POST", map[string]string{"Origin": "https://luci.example"}, true},
+		{"non-browser client (curl, MCP)", "POST", nil, true},
+		{"cross-site GET is a plain navigation", "GET", map[string]string{"Sec-Fetch-Site": "cross-site"}, true},
+	}
+	for _, c := range cases {
+		reached = false
+		req := httptest.NewRequest(c.method, "http://127.0.0.1:8888/admin/delete/1", nil)
+		for k, v := range c.headers {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if reached != c.allowed {
+			t.Errorf("%s: reached handler = %v, want %v (status %d)", c.name, reached, c.allowed, rec.Code)
+		}
+		if !c.allowed && rec.Code != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want 403", c.name, rec.Code)
+		}
+	}
+}
+
+// The database must never hold a value that works as a session cookie.
+func TestSessionTokenNotStoredInClear(t *testing.T) {
+	s := webTestServer(t, nil)
+	token, err := s.sessions.Create()
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if !s.sessions.Valid(token) {
+		t.Fatal("fresh session token should be valid")
+	}
+	if ok, _ := s.db.SessionValid(token); ok {
+		t.Fatal("raw cookie value is stored in the sessions table")
+	}
+	// What the table does hold must not be usable as a cookie either.
+	if s.sessions.Valid(sessionKey(token)) {
+		t.Fatal("stored session key is accepted as a session token")
+	}
+	s.sessions.Delete(token)
+	if s.sessions.Valid(token) {
+		t.Fatal("session still valid after delete")
+	}
+}
+
+// /static/ must serve files but never an auto-generated directory listing.
+func TestStaticServesFilesNotListings(t *testing.T) {
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := http.StripPrefix("/static/", http.FileServer(noDirFS{http.FS(staticSub)}))
+	for path, want := range map[string]int{
+		"/static/":              http.StatusNotFound,
+		"/static/js/":           http.StatusNotFound,
+		"/static/js":            http.StatusNotFound,
+		"/static/css/style.css": http.StatusOK,
+		"/static/js/base.js":    http.StatusOK,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != want {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
+// The upload handlers extend their deadlines through http.ResponseController,
+// which only works if the request-log wrapper exposes the real writer.
+func TestStatusRecorderAllowsDeadlineExtension(t *testing.T) {
+	var deadlineErr error
+	s := webTestServer(t, nil)
+	s.reqlog = newRequestLog(10)
+	srv := httptest.NewServer(s.logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deadlineErr = http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute))
+	})))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if deadlineErr != nil {
+		t.Fatalf("SetReadDeadline through the request-log wrapper: %v", deadlineErr)
 	}
 }

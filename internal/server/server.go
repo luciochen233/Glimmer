@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -109,6 +111,22 @@ func lowercasePath(next http.Handler) http.Handler {
 	})
 }
 
+// noDirFS serves files but never directories, so /static/ and its
+// subdirectories return 404 instead of an auto-generated file listing.
+type noDirFS struct{ fs http.FileSystem }
+
+func (n noDirFS) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := f.Stat(); err != nil || st.IsDir() {
+		f.Close()
+		return nil, fs.ErrNotExist
+	}
+	return f, nil
+}
+
 func (s *Server) Start() error {
 	initTemplates()
 	s.backfillPasteSummaries()
@@ -122,7 +140,7 @@ func (s *Server) Start() error {
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(noDirFS{http.FS(staticSub)})))
 
 	// Uploaded files (public — appear in public pastes). Non-image files are
 	// served as attachments to prevent same-origin XSS via HTML/SVG/JS uploads.
@@ -181,18 +199,24 @@ func (s *Server) Start() error {
 	// Redirect catch-all (must be last)
 	mux.HandleFunc("GET /{slug}", s.handleRedirect)
 
-	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
+	// Empty host = all interfaces. Behind a reverse proxy set server.host to
+	// 127.0.0.1 so the app (and its trust in X-Forwarded-For) is only
+	// reachable through the proxy.
+	addr := net.JoinHostPort(s.cfg.Server.Host, strconv.Itoa(s.cfg.Server.Port))
 
 	// Middleware chain (outermost first):
 	//   limitConcurrency — cap in-flight requests (memory/CPU guard)
 	//   limitBody        — cap body size for non-upload POSTs
 	//   lowercasePath    — normalise case for QR URLs
 	//   securityHeaders  — CSP + hardening headers
+	//   logRequests      — in-RAM request log
+	//   crossOriginGuard — reject cross-origin state-changing browser requests
 	const maxBodyBytes = 1 << 20 // 1 MB for ordinary requests
 	handler := limitConcurrency(s.cfg.Server.MaxConcurrent,
 		limitBody(maxBodyBytes,
 			lowercasePath(securityHeaders(
-				s.logRequests(mux)))))
+				s.logRequests(
+					crossOriginGuard(s.cfg.Server.BaseURL, mux))))))
 
 	srv := &http.Server{
 		Addr:              addr,
