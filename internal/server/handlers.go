@@ -47,6 +47,7 @@ type pageData struct {
 	Links       any
 	AdminLinks  any
 	AnonLinks   any
+	AppLinks    any // links created through the REST API by named applications
 	Link        any
 	TopLinks    any
 	Paste       any
@@ -401,11 +402,13 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	appLinks, _ := s.db.ListRecentByAPIClients(500)
 	topLinks, _ := s.db.TopLinks("admin", 20)
 
 	d := s.adminPage(w, r, "links")
 	d.AdminLinks = adminLinks
 	d.AnonLinks = anonLinks
+	d.AppLinks = appLinks
 	d.TopLinks = topLinks
 	renderTemplate(w, "admin.html", d)
 }

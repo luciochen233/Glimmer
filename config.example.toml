@@ -35,7 +35,16 @@ session_hours = 24
 
 [mcp]
 enabled = false
+# The administrator's key: authenticates POST /mcp and the REST link API
+# (/api/links) with access to every link.
 api_key = ""
+
+# Keys for other applications that use the REST link API. Each application can
+# only see and change the links it created itself, and cannot use /mcp.
+# Generate a key with: openssl rand -hex 24
+# [[api.keys]]
+# name = "solis"
+# key  = ""
 
 [database]
 path = "./data/urls.db"

@@ -127,6 +127,9 @@ Two layers. `crossOriginGuard` (middleware chain in `server.go`, wraps the whole
 
 All state-changing POSTs must include `<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">` in the form. Handlers must be wrapped with `requireCSRF`. For multipart form handlers (file uploads), verify CSRF manually inside the handler *after* calling `r.ParseMultipartForm` — do not use the `requireCSRF` wrapper as it will parse with Go's default 32 MB limit before `MaxBytesReader` takes effect.
 
+### REST link API (`api.go`)
+`/api/links` (POST, GET) and `/api/links/{slug}` (GET, PATCH, DELETE) are registered only when a key exists (`apiEnabled`). Every handler starts with `s.apiAuthorize(w, r)`, which returns an `apiPrincipal`: the `[mcp] api_key` is the administrator (all links, `created_by = "admin"`), an `[[api.keys]]` entry is an application that only reaches links with `created_by = "api:<name>"`. Load links through `s.apiOwnedLink` so other creators' links stay indistinguishable from missing ones (404, never 403). Wrong keys go through `authLimiter.Guard`.
+
 ### File uploads
 Two endpoints, both admin-only and CSRF-protected:
 - `POST /admin/upload` — images only (PNG/JPEG/GIF/WebP), up to `upload.max_size_mb` from config (default 50 MB). MIME type validated by magic bytes via `http.DetectContentType`.

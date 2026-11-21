@@ -12,6 +12,7 @@ type Config struct {
 	Server   ServerConfig   `toml:"server"`
 	Admin    AdminConfig    `toml:"admin"`
 	MCP      MCPConfig      `toml:"mcp"`
+	API      APIConfig      `toml:"api"`
 	Database DatabaseConfig `toml:"database"`
 	Slugs    SlugConfig     `toml:"slugs"`
 	Upload   UploadConfig   `toml:"upload"`
@@ -52,6 +53,20 @@ type MCPConfig struct {
 	APIKey  string `toml:"api_key"`
 }
 
+// APIConfig lists the applications allowed to use the REST link API
+// (/api/links). Each gets its own key, so one can be revoked without touching
+// the others, and can only see and change the links it created itself. The
+// [mcp] api_key remains the administrator's key: it reaches every link and
+// the MCP endpoint.
+type APIConfig struct {
+	Keys []APIKey `toml:"keys"`
+}
+
+type APIKey struct {
+	Name string `toml:"name"` // short identifier, recorded as the creator "api:<name>"
+	Key  string `toml:"key"`  // long random secret
+}
+
 type DatabaseConfig struct {
 	Path string `toml:"path"`
 }
@@ -79,6 +94,18 @@ func (c *ServerConfig) WriteTimeoutDuration() time.Duration {
 		return 10 * time.Second
 	}
 	return d
+}
+
+func validAPIKeyName(name string) bool {
+	if len(name) == 0 || len(name) > 32 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func Load(path string) (*Config, error) {
@@ -119,6 +146,23 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Admin.PasswordHash == "" {
 		return nil, fmt.Errorf("admin.password_hash is required in config (generate one with: glimmer --hash-password \"your-password\")")
+	}
+
+	seen := map[string]bool{}
+	for _, k := range cfg.API.Keys {
+		if !validAPIKeyName(k.Name) {
+			return nil, fmt.Errorf("api.keys: name %q must be 1-32 characters of a-z, 0-9, '-' or '_'", k.Name)
+		}
+		if seen[k.Name] {
+			return nil, fmt.Errorf("api.keys: duplicate name %q", k.Name)
+		}
+		seen[k.Name] = true
+		if len(k.Key) < 24 {
+			return nil, fmt.Errorf("api.keys: key for %q is too short (use at least 24 random characters)", k.Name)
+		}
+		if k.Key == cfg.MCP.APIKey {
+			return nil, fmt.Errorf("api.keys: key for %q must differ from mcp.api_key", k.Name)
+		}
 	}
 
 	if cfg.Server.ProxyHops < 1 {
